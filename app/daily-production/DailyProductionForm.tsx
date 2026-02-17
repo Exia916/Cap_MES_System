@@ -263,19 +263,25 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
   }, [salesOrder, initialSubmissionId]);
 
   // When user selects submission from dropdown, load it
-  useEffect(() => {
-    if (!selectedSubmissionId) return;
+ useEffect(() => {
+  if (!initialSubmissionId) return;
 
-    // If we’re on edit page and it already loaded, this is fine; it’s idempotent.
-    (async () => {
-      try {
-        await loadSubmission(selectedSubmissionId);
-      } catch (err: any) {
-        setError(err?.message ?? "Failed to load submission.");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSubmissionId]);
+  // force selection (so button label becomes "Update Submission", etc.)
+  setSelectedSubmissionId(initialSubmissionId);
+
+  // force-load data for the edit route
+  (async () => {
+    try {
+      await loadSubmission(initialSubmissionId);
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to load submission.");
+    }
+  })();
+
+  // run when route id changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [initialSubmissionId]);
+
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -406,7 +412,7 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
             />
           </div>
 
-          <div className="md:col-span-3">
+          {/* <div className="md:col-span-3">
             <label className="block text-sm font-medium">Load Previous Submission (optional)</label>
             <select
               value={selectedSubmissionId}
@@ -432,7 +438,7 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
                 Loaded submission — saving will UPDATE it (PUT).
               </div>
             )}
-          </div>
+          </div> */}
         </div>
       </div>
 

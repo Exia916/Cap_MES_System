@@ -1,11 +1,11 @@
 import DailyProductionForm from "../DailyProductionForm";
 
-export default function EditDailyProductionPage({
+export default async function EditDailyProductionPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const { id } = params;
+  const { id } = await params;
 
   return (
     <div style={{ padding: 16 }}>
