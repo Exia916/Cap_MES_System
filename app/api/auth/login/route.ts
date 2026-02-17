@@ -1,51 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { query } from "@/lib/db";
-import { signJwt } from "@/lib/auth";
+import { loginUser, COOKIE_NAME } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const { username, password } = await req.json();
+  try {
+    const body = await req.json();
+    const username = body?.username?.trim();
+    const password = body?.password;
 
-  if (!username || !password) {
-    return NextResponse.json({ error: "Missing credentials" }, { status: 400 });
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: "Username and password required." },
+        { status: 400 }
+      );
+    }
+
+    const result = await loginUser(username, password);
+
+    if ("error" in result) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: 401 }
+      );
+    }
+
+    const { token, user } = result;
+
+    const res = NextResponse.json({ success: true, user });
+
+    res.cookies.set(COOKIE_NAME, token, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 8,
+    });
+
+    return res;
+  } catch {
+    return NextResponse.json(
+      { error: "Login failed." },
+      { status: 500 }
+    );
   }
-
-  const res = await query<{
-    id: string;
-    password_hash: string;
-    role: string;
-    is_active: boolean;
-  }>(
-    `SELECT id, password_hash, role, is_active
-     FROM users
-     WHERE username = $1`,
-    [username]
-  );
-
-  if (res.rowCount === 0) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  const user = res.rows[0];
-
-  if (!user.is_active) {
-    return NextResponse.json({ error: "User inactive" }, { status: 403 });
-  }
-
-  const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  const token = signJwt({ userId: user.id, role: user.role });
-
-  const response = NextResponse.json({ success: true });
-  response.cookies.set("auth_token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  });
-
-  return response;
 }
+

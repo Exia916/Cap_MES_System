@@ -7,9 +7,22 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { query } from "@/lib/db";
+import dotenv from "dotenv";
+import { Pool } from "pg";
 
-type Role = "ADMIN" | "SUPERVISOR" | "USER";
+dotenv.config({ path: ".env.local" });
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 10,
+});
+
+async function query<T = any>(text: string, params?: any[]) {
+  const res = await pool.query(text, params);
+  return res as { rows: T[]; rowCount: number };
+}
+
+type Role = "ADMIN" | "MANAGER" | "SUPERVISOR" | "USER";
 
 type CsvRow = Record<string, string>;
 
@@ -88,6 +101,17 @@ function normalizeEmployeeNumber(raw: string): string | null {
   return v ? v : null;
 }
 
+function normalizeShift(raw: string): "DAY" | "NIGHT" | null {
+  const v = (raw ?? "").trim().toUpperCase();
+  if (v === "DAY" || v === "NIGHT") return v;
+  return null;
+}
+
+function normalizeDepartment(raw: string): string | null {
+  const v = (raw ?? "").trim();
+  return v ? v : null;
+}
+
 function normalizeRoleAndActive(rawRole: string): { role: Role; isActive: boolean } {
   const r = (rawRole ?? "").trim();
   const lower = r.toLowerCase();
@@ -95,7 +119,7 @@ function normalizeRoleAndActive(rawRole: string): { role: Role; isActive: boolea
   // Spreadsheet includes: User/user, Supervisor, Admin, Inactive
   if (lower === "inactive") return { role: "USER", isActive: false };
   if (lower === "admin") return { role: "ADMIN", isActive: true };
-  if (lower === "supervisor") return { role: "SUPERVISOR", isActive: true };
+  if (lower === "supervisor" || lower === "manager") return { role: "MANAGER", isActive: true };
   if (lower === "user") return { role: "USER", isActive: true };
 
   // Default
@@ -142,6 +166,8 @@ async function main() {
   const COL_PWHASH = "Password Hash";
   const COL_EMPNO = "Employee Number";
   const COL_ROLE = "Role";
+  const COL_SHIFT = "Shift";
+  const COL_DEPT = "Department";
 
   let seen = 0;
   let skippedNoUsername = 0;
@@ -162,11 +188,23 @@ async function main() {
     const displayName = normalizeDisplayName(r[COL_NAME]);
     const employeeNumber = normalizeEmployeeNumber(r[COL_EMPNO]);
     const { role, isActive } = normalizeRoleAndActive(r[COL_ROLE]);
+    const shift = normalizeShift(r[COL_SHIFT]);
+    const department = normalizeDepartment(r[COL_DEPT]);
     const passwordHash = (r[COL_PWHASH] ?? "").trim() || null;
 
-    const existing = await query<{ id: string; password_hash: string | null }>(
-      `SELECT id, password_hash FROM users WHERE username = $1 LIMIT 1`,
-      [username]
+    const existing = await query<{
+      id: string;
+      username: string;
+      employee_number: number | null;
+      password_hash: string | null;
+    }>(
+      `SELECT id, username, employee_number, password_hash
+       FROM users
+       WHERE username = $1
+          OR ($2::integer IS NOT NULL AND employee_number = $2::integer)
+       ORDER BY CASE WHEN username = $1 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [username, employeeNumber]
     );
 
     const exists = existing.rows.length > 0;
@@ -181,9 +219,11 @@ async function main() {
       wouldInsert++;
       if (apply) {
         await query(
-          `INSERT INTO users (username, display_name, role, is_active, employee_number, password_hash)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [username, displayName, role, isActive, employeeNumber, passwordHash]
+          `INSERT INTO users (
+             username, display_name, role, is_active, employee_number, shift, department, password_hash
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [username, displayName, role, isActive, employeeNumber, shift, department, passwordHash]
         );
       }
     } else {
@@ -196,9 +236,11 @@ async function main() {
                  role = $3,
                  is_active = $4,
                  employee_number = $5,
-                 password_hash = $6
-             WHERE username = $1`,
-            [username, displayName, role, isActive, employeeNumber, passwordHash]
+                 shift = $6,
+                 department = $7,
+                 password_hash = $8
+             WHERE id = $1`,
+            [existing.rows[0].id, displayName, role, isActive, employeeNumber, shift, department, passwordHash]
           );
         } else {
           await query(
@@ -206,9 +248,11 @@ async function main() {
              SET display_name = $2,
                  role = $3,
                  is_active = $4,
-                 employee_number = $5
-             WHERE username = $1`,
-            [username, displayName, role, isActive, employeeNumber]
+                 employee_number = $5,
+                 shift = $6,
+                 department = $7
+             WHERE id = $1`,
+            [existing.rows[0].id, displayName, role, isActive, employeeNumber, shift, department]
           );
         }
       }
@@ -224,6 +268,8 @@ async function main() {
   console.log(`Would skip (new user missing password hash): ${wouldSkipNoHashNew}`);
   console.log(`Mode: ${apply ? "APPLY (writes enabled)" : "DRY RUN (no writes)"}`);
   console.log(`Update passwords: ${updatePasswords ? "YES (if hash present)" : "NO"}`);
+
+  await pool.end();
 }
 
 main().catch((err) => {

@@ -1,17 +1,19 @@
 import { Pool } from "pg";
 
-const globalForPg = globalThis as unknown as { pgPool?: Pool };
-
-export const pool =
-  globalForPg.pgPool ??
-  new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 10,
-  });
-
-if (process.env.NODE_ENV !== "production") globalForPg.pgPool = pool;
-
-export async function query<T = any>(text: string, params?: any[]) {
-  const res = await pool.query(text, params);
-  return res as { rows: T[]; rowCount: number };
+declare global {
+  // eslint-disable-next-line no-var
+  var pgPool: Pool | undefined;
 }
+
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("Missing DATABASE_URL environment variable. Set DATABASE_URL in your environment before starting the app.");
+}
+
+const db =
+  process.env.NODE_ENV === "production"
+    ? new Pool({ connectionString })
+    : (globalThis.pgPool ??= new Pool({ connectionString }));
+
+export { db };
