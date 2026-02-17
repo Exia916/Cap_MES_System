@@ -1,16 +1,16 @@
 import DailyProductionForm from "../DailyProductionForm";
 
-export default async function EditDailyProductionPage({
+export default function EditDailyProductionPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = await params;
+  const { id } = params;
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Edit Daily Production Entry</h1>
-      <DailyProductionForm mode="edit" id={id} />
+      <h1>Edit Daily Production Submission</h1>
+      <DailyProductionForm initialSubmissionId={id} />
     </div>
   );
 }

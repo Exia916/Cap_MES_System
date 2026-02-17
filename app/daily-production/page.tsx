@@ -2,7 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { DailyProductionRow } from "./types";
+
+type DailyProductionRow = {
+  id: string;
+  submissionId: string | null;
+  entryTs: string;
+  name: string;
+  machineNumber: number | null;
+  salesOrder: number | null;
+  detailNumber: number | null;
+  embroideryLocation: string | null;
+  stitches: number | null;
+  pieces: number | null;
+  is3d: boolean;
+  isKnit: boolean;
+  detailComplete: boolean;
+  notes: string | null;
+};
 
 function getDefaultShiftDateYYYYMMDD(): string {
   const now = new Date();
@@ -43,7 +59,7 @@ export default function DailyProductionPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load entries.");
-      setRows(data?.entries ?? []);
+      setRows(Array.isArray(data?.entries) ? data.entries : []);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
     } finally {
@@ -99,47 +115,37 @@ export default function DailyProductionPage() {
             </thead>
 
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td style={td}>{r.entryTs ?? (r as any).entry_ts ?? ""}</td>
-                  <td style={td}>{r.name ?? ""}</td>
-                  <td style={td}>
-                    {(r as any).machineNumber ?? (r as any).machine_number ?? ""}
-                  </td>
-                  <td style={td}>
-                    {(r as any).salesOrder ?? (r as any).sales_order ?? ""}
-                  </td>
-                  <td style={td}>
-                    {(r as any).detailNumber ?? (r as any).detail_number ?? ""}
-                  </td>
-                  <td style={td}>
-                    {(r as any).embroideryLocation ??
-                      (r as any).embroidery_location ??
-                      ""}
-                  </td>
-                  <td style={td}>{(r as any).stitches ?? ""}</td>
-                  <td style={td}>{(r as any).pieces ?? ""}</td>
-                  <td style={td}>
-                    {fmtBool((r as any).is3d ?? (r as any).is_3d)}
-                  </td>
-                  <td style={td}>
-                    {fmtBool((r as any).isKnit ?? (r as any).is_knit)}
-                  </td>
-                  <td style={td}>
-                    {fmtBool(
-                      (r as any).detailComplete ?? (r as any).detail_complete
-                    )}
-                  </td>
-                  <td style={{ ...td, whiteSpace: "normal" }}>
-                    {(r as any).notes ?? ""}
-                  </td>
-                  <td style={td}>
-                    <Link href={`/daily-production/${r.id}`}>Edit</Link>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const editHref = r.submissionId
+                  ? `/daily-production/${r.submissionId}`
+                  : `/daily-production/${r.id}`; // fallback (old rows)
+
+                return (
+                  <tr key={r.id}>
+                    <td style={td}>{r.entryTs ?? ""}</td>
+                    <td style={td}>{r.name ?? ""}</td>
+                    <td style={td}>{r.machineNumber ?? ""}</td>
+                    <td style={td}>{r.salesOrder ?? ""}</td>
+                    <td style={td}>{r.detailNumber ?? ""}</td>
+                    <td style={td}>{r.embroideryLocation ?? ""}</td>
+                    <td style={td}>{r.stitches ?? ""}</td>
+                    <td style={td}>{r.pieces ?? ""}</td>
+                    <td style={td}>{fmtBool(r.is3d)}</td>
+                    <td style={td}>{fmtBool(r.isKnit)}</td>
+                    <td style={td}>{fmtBool(r.detailComplete)}</td>
+                    <td style={{ ...td, whiteSpace: "normal" }}>{r.notes ?? ""}</td>
+                    <td style={td}>
+                      <Link href={editHref}>Edit</Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+
+          <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
+            Edit opens the submission editor (new saves) when a submission id exists.
+          </p>
         </div>
       )}
     </div>
@@ -178,3 +184,4 @@ const td: React.CSSProperties = {
   padding: 8,
   verticalAlign: "top",
 };
+
