@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { addEmbroideryEntry } from "@/lib/repositories/embroideryRepo";
+import {
+  addEmbroideryEntriesBulk,
+  createEmbroiderySubmission,
+} from "@/lib/repositories/embroideryRepo";
 import { getAuthFromRequest } from "@/lib/auth";
 
 type LineBody = {
@@ -39,15 +42,6 @@ function toNonNegIntOrNull(value: unknown, fieldLabel: string): number | null {
   return n;
 }
 
-function combineNotes(headerNotes: string | null, lineNotes: string | null) {
-  const h = headerNotes?.trim() || "";
-  const l = lineNotes?.trim() || "";
-  if (h && l) return `${h} | ${l}`;
-  if (h) return h;
-  if (l) return l;
-  return null;
-}
-
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromRequest(req as any);
@@ -75,47 +69,52 @@ export async function POST(req: Request) {
     const salesOrder = toNullableInt(body.salesOrder);
     const headerNotes = body.notes?.toString().trim() || null;
 
-    const ids: string[] = [];
-
-    for (let i = 0; i < body.lines.length; i++) {
-      const line = body.lines[i];
-
+    const lines = body.lines.map((line, idx) => {
       const detailNumber = toNullableInt(line.detailNumber);
       const embroideryLocation = (line.embroideryLocation ?? "").toString().trim();
 
-      if (detailNumber === null) throw new Error(`Line ${i + 1}: detailNumber is required (number).`);
-      if (!embroideryLocation) throw new Error(`Line ${i + 1}: embroideryLocation is required.`);
+      if (detailNumber === null) throw new Error(`Line ${idx + 1}: detailNumber is required (number).`);
+      if (!embroideryLocation) throw new Error(`Line ${idx + 1}: embroideryLocation is required.`);
 
-      const stitches = toNonNegIntOrNull(line.stitches, `Line ${i + 1}: stitches`);
-      const pieces = toNonNegIntOrNull(line.pieces, `Line ${i + 1}: pieces`);
-
-      const notes = combineNotes(headerNotes, line.notes?.toString() || null);
-
-      const inserted = await addEmbroideryEntry({
-        entryTs,
-        name,
-        employeeNumber,
-        shift,
-
-        machineNumber,
-        salesOrder,
+      return {
         detailNumber,
         embroideryLocation,
-
-        stitches,
-        pieces,
-
+        stitches: toNonNegIntOrNull(line.stitches, `Line ${idx + 1}: stitches`),
+        pieces: toNonNegIntOrNull(line.pieces, `Line ${idx + 1}: pieces`),
         is3d: !!line.is3d,
         isKnit: !!line.isKnit,
         detailComplete: !!line.detailComplete,
+        notes: line.notes?.toString().trim() || null,
+      };
+    });
 
-        notes,
-      });
+    const submission = await createEmbroiderySubmission({
+      entryTs,
+      name,
+      employeeNumber,
+      shift,
+      machineNumber,
+      salesOrder,
+      notes: headerNotes,
+    });
 
-      ids.push(inserted.id);
-    }
+    const inserted = await addEmbroideryEntriesBulk({
+      submissionId: submission.id,
+      entryTs,
+      name,
+      employeeNumber,
+      shift,
+      machineNumber,
+      salesOrder,
+      lines,
+    });
 
-    return NextResponse.json({ success: true, count: ids.length, ids });
+    return NextResponse.json({
+      success: true,
+      count: inserted.length,
+      ids: inserted.map((r) => r.id),
+      submissionId: submission.id,
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err?.message ?? "Failed to add daily production entry." },
@@ -123,3 +122,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

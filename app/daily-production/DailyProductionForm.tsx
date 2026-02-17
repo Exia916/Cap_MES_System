@@ -6,6 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 type LocationOption = { value: string; label: string };
 type MachineOption = { value: string; label: string };
 
+type SubmissionOption = {
+  id: string;
+  entryTs: string;
+  machineNumber: number | null;
+  notes: string | null;
+  lineCount?: number;
+};
+
 type Line = {
   detailNumber: string;
   embroideryLocation: string;
@@ -32,7 +40,27 @@ function blankLine(): Line {
 
 const MACHINE_STORAGE_KEY = "capmes.dailyProduction.machineNumber";
 
-export default function DailyProductionForm() {
+function isIntString(s: string) {
+  const t = s.trim();
+  if (!t) return false;
+  const n = Number(t);
+  return Number.isFinite(n) && Number.isInteger(n);
+}
+
+function formatSubmissionLabel(s: SubmissionOption) {
+  const dt = new Date(s.entryTs);
+  const dtStr = Number.isNaN(dt.getTime()) ? s.entryTs : dt.toLocaleString();
+  const machine = s.machineNumber != null ? ` | M${s.machineNumber}` : "";
+  const count = s.lineCount != null ? ` | ${s.lineCount} line(s)` : "";
+  return `${dtStr}${machine}${count}`;
+}
+
+type DailyProductionFormProps = {
+  /** If provided (e.g. /daily-production/[id]), auto-load this submission */
+  initialSubmissionId?: string;
+};
+
+export default function DailyProductionForm({ initialSubmissionId }: DailyProductionFormProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -45,13 +73,20 @@ export default function DailyProductionForm() {
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [machineOptions, setMachineOptions] = useState<MachineOption[]>([]);
 
+  // Submission dropdown
+  const [submissions, setSubmissions] = useState<SubmissionOption[]>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+
+  // ✅ Support initialSubmissionId (edit page)
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string>(initialSubmissionId ?? "");
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const canRemove = useMemo(() => lines.length > 1, [lines.length]);
 
-  // ✅ Load previously selected machine (so it survives navigation / refresh)
+  // Load saved machine
   useEffect(() => {
     try {
       const saved = localStorage.getItem(MACHINE_STORAGE_KEY);
@@ -59,11 +94,10 @@ export default function DailyProductionForm() {
     } catch {
       // ignore
     }
-    // run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Persist machine whenever it changes
+  // Persist machine
   useEffect(() => {
     try {
       if (machineNumber) localStorage.setItem(MACHINE_STORAGE_KEY, machineNumber);
@@ -72,6 +106,7 @@ export default function DailyProductionForm() {
     }
   }, [machineNumber]);
 
+  // Load location options
   useEffect(() => {
     (async () => {
       try {
@@ -98,6 +133,7 @@ export default function DailyProductionForm() {
     })();
   }, []);
 
+  // Load machine options
   useEffect(() => {
     (async () => {
       try {
@@ -147,6 +183,106 @@ export default function DailyProductionForm() {
     return null;
   }
 
+  // ✅ Load a submission (used both by dropdown selection and initialSubmissionId)
+  async function loadSubmission(submissionId: string) {
+    setError(null);
+    setSuccessMsg(null);
+
+    const res = await fetch(`/api/daily-production-submission?id=${encodeURIComponent(submissionId)}`, {
+      cache: "no-store",
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error ?? "Failed to load submission.");
+
+    const submission = data?.submission;
+    const loadedLines = Array.isArray(data?.lines) ? data.lines : [];
+
+    // Ensure Sales Order is populated (so user sees it / submission list works)
+    if (submission?.salesOrder != null) setSalesOrder(String(submission.salesOrder));
+
+    setHeaderNotes(submission?.notes ?? "");
+    if (submission?.machineNumber != null) setMachineNumber(String(submission.machineNumber));
+
+    setLines(
+      loadedLines.length > 0
+        ? loadedLines.map((l: any) => ({
+            detailNumber: l?.detailNumber != null ? String(l.detailNumber) : "",
+            embroideryLocation: l?.embroideryLocation != null ? String(l.embroideryLocation) : "",
+            stitches: l?.stitches != null ? String(l.stitches) : "",
+            pieces: l?.pieces != null ? String(l.pieces) : "",
+            is3d: !!l?.is3d,
+            isKnit: !!l?.isKnit,
+            detailComplete: !!l?.detailComplete,
+            notes: l?.notes != null ? String(l.notes) : "",
+          }))
+        : [blankLine()]
+    );
+  }
+
+
+  // Load submissions for Sales Order (debounced)
+  useEffect(() => {
+    setSubmissions([]);
+
+    // ✅ Do NOT wipe selected submission if we're on the edit page
+    if (!initialSubmissionId) setSelectedSubmissionId("");
+
+    const so = salesOrder.trim();
+    if (!isIntString(so)) return;
+
+    const handle = setTimeout(async () => {
+      setLoadingSubmissions(true);
+      try {
+        const res = await fetch(`/api/daily-production-submissions?salesOrder=${encodeURIComponent(so)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setSubmissions([]);
+          return;
+        }
+        const data = await res.json();
+        const list = Array.isArray(data?.submissions) ? data.submissions : [];
+        setSubmissions(
+          list.map((s: any) => ({
+            id: String(s.id),
+            entryTs: String(s.entryTs),
+            machineNumber: s.machineNumber == null ? null : Number(s.machineNumber),
+            notes: s.notes == null ? null : String(s.notes),
+            lineCount: s.lineCount == null ? undefined : Number(s.lineCount),
+          }))
+        );
+      } catch {
+        setSubmissions([]);
+      } finally {
+        setLoadingSubmissions(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(handle);
+  }, [salesOrder, initialSubmissionId]);
+
+  // When user selects submission from dropdown, load it
+ useEffect(() => {
+  if (!initialSubmissionId) return;
+
+  // force selection (so button label becomes "Update Submission", etc.)
+  setSelectedSubmissionId(initialSubmissionId);
+
+  // force-load data for the edit route
+  (async () => {
+    try {
+      await loadSubmission(initialSubmissionId);
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to load submission.");
+    }
+  })();
+
+  // run when route id changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [initialSubmissionId]);
+
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -160,8 +296,16 @@ export default function DailyProductionForm() {
 
     setSaving(true);
     try {
-      const res = await fetch("/api/daily-production-add", {
-        method: "POST",
+      const isUpdate = !!selectedSubmissionId;
+
+      const url = isUpdate
+        ? `/api/daily-production-submission?id=${encodeURIComponent(selectedSubmissionId)}`
+        : "/api/daily-production-add";
+
+      const method = isUpdate ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           entryTs: new Date().toISOString(),
@@ -187,17 +331,26 @@ export default function DailyProductionForm() {
         return;
       }
 
-      setSuccessMsg(`Saved ${data?.count ?? lines.length} line(s).`);
+      setSuccessMsg(
+        isUpdate ? `Updated ${data?.count ?? lines.length} line(s).` : `Saved ${data?.count ?? lines.length} line(s).`
+      );
 
-      // ✅ Clear everything EXCEPT machineNumber
-      setSalesOrder("");
+      // After save, clear lines + notes; keep SO + machine for quick entry
       setHeaderNotes("");
       setLines([blankLine()]);
 
-      // ✅ If we saved from the edit page, go back to "new entry"
-      // Edit routes look like: /daily-production/<id>
-      // New entry route: /daily-production/add
-      if (pathname?.startsWith("/daily-production/") && !pathname.startsWith("/daily-production/add")) {
+      // If it was an update, keep selection (so user can continue editing) OR clear:
+      // Clearing makes it behave like "new entry"; keeping makes it behave like "edit mode".
+      // We'll clear unless we're explicitly on /daily-production/[id]
+      const editingByRoute = pathname?.startsWith("/daily-production/") && !pathname.startsWith("/daily-production/add");
+      if (!editingByRoute) setSelectedSubmissionId("");
+
+      // Refresh submissions list (salesOrder unchanged; force refresh by re-setting)
+      setSalesOrder((v) => v);
+
+      // If we saved from the edit route, go back to add page (optional)
+      // Comment this out if you want to stay on edit page.
+      if (editingByRoute) {
         router.push("/daily-production/add");
       }
     } catch (err: any) {
@@ -219,6 +372,9 @@ export default function DailyProductionForm() {
               className="mt-1 w-full rounded border px-3 py-2"
               placeholder="123456"
             />
+            <div className="mt-1 text-xs opacity-70">
+              Enter a Sales Order to load prior submissions (new saves only).
+            </div>
           </div>
 
           <div>
@@ -255,6 +411,34 @@ export default function DailyProductionForm() {
               placeholder="Optional notes that apply to the whole submission"
             />
           </div>
+
+          {/* <div className="md:col-span-3">
+            <label className="block text-sm font-medium">Load Previous Submission (optional)</label>
+            <select
+              value={selectedSubmissionId}
+              onChange={(e) => setSelectedSubmissionId(e.target.value)}
+              className="mt-1 w-full rounded border px-3 py-2"
+              disabled={loadingSubmissions || submissions.length === 0}
+            >
+              <option value="">
+                {loadingSubmissions
+                  ? "Loading…"
+                  : submissions.length > 0
+                    ? "Select a submission…"
+                    : "No submissions found (new saves only)."}
+              </option>
+              {submissions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {formatSubmissionLabel(s)}
+                </option>
+              ))}
+            </select>
+            {selectedSubmissionId && (
+              <div className="mt-1 text-xs opacity-70">
+                Loaded submission — saving will UPDATE it (PUT).
+              </div>
+            )}
+          </div> */}
         </div>
       </div>
 
@@ -378,8 +562,9 @@ export default function DailyProductionForm() {
       {successMsg && <div className="rounded border border-green-300 p-3 text-sm">{successMsg}</div>}
 
       <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-50">
-        {saving ? "Saving..." : "Save"}
+        {saving ? "Saving..." : selectedSubmissionId ? "Update Submission" : "Save"}
       </button>
     </form>
   );
 }
+
