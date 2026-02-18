@@ -19,6 +19,7 @@ export default function NavBar() {
         <NavLink href="/dashboard" label="Dashboard" pathname={pathname} />
         <NavLink href="/daily-production" label="Daily Production" pathname={pathname} />
         <NavLink href="/qc-daily-production" label="QC Daily Production" pathname={pathname} />
+        <NavLink href="/emblem-production" label="Emblem Production" pathname={pathname} />
       </div>
 
       <div style={right}>
@@ -84,10 +85,10 @@ const link: React.CSSProperties = {
   textDecoration: "none",
   padding: "6px 10px",
   borderRadius: 6,
+  color: "#000",
 };
 
 const activeLink: React.CSSProperties = {
   backgroundColor: "#f0f0f0",
   fontWeight: 600,
 };
-
