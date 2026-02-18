@@ -3,49 +3,37 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type DailyProductionRow = {
-  id: string;
-  submissionId: string | null;
-  entryTs: string;
-  name: string;
-  machineNumber: number | null;
-  salesOrder: number | null;
-  detailNumber: number | null;
-  embroideryLocation: string | null;
-  stitches: number | null;
-  pieces: number | null;
-  is3d: boolean;
-  isKnit: boolean;
-  detailComplete: boolean;
-  notes: string | null;
-};
-
 function getDefaultShiftDateYYYYMMDD(): string {
-  const now = new Date();
-
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Chicago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(now);
+  }).formatToParts(new Date());
 
   const yyyy = parts.find((p) => p.type === "year")?.value ?? "1970";
   const mm = parts.find((p) => p.type === "month")?.value ?? "01";
   const dd = parts.find((p) => p.type === "day")?.value ?? "01";
-
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function fmtBool(v: unknown) {
-  return v ? "TRUE" : "FALSE";
-}
+type SubmissionRow = {
+  id: string;
+  entryTs: string;
+  name: string;
+  machineNumber: number | null;
+  salesOrder: number | null;
+  lineCount: number;
+  totalStitches: number | null;
+  totalPieces: number | null;
+  notes: string | null;
+};
 
 export default function DailyProductionPage() {
-  const [rows, setRows] = useState<DailyProductionRow[]>([]);
+  const [shiftDate, setShiftDate] = useState(() => getDefaultShiftDateYYYYMMDD());
+  const [rows, setRows] = useState<SubmissionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [shiftDate, setShiftDate] = useState(() => getDefaultShiftDateYYYYMMDD());
 
   async function load(date: string) {
     setLoading(true);
@@ -53,13 +41,12 @@ export default function DailyProductionPage() {
 
     try {
       const res = await fetch(
-        `/api/daily-production-list?shiftDate=${encodeURIComponent(date)}`,
+        `/api/daily-production-submission-list?shiftDate=${encodeURIComponent(date)}`,
         { credentials: "include" }
       );
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load entries.");
-      setRows(Array.isArray(data?.entries) ? data.entries : []);
+      if (!res.ok) throw new Error(data?.error || "Failed to load submissions.");
+      setRows(Array.isArray(data?.submissions) ? data.submissions : []);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
     } finally {
@@ -81,17 +68,13 @@ export default function DailyProductionPage() {
       <div style={{ marginTop: 12 }}>
         <label>
           Shift Date:{" "}
-          <input
-            type="date"
-            value={shiftDate}
-            onChange={(e) => setShiftDate(e.target.value)}
-          />
+          <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} />
         </label>
       </div>
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {!loading && !error && rows.length === 0 && <p>No entries found.</p>}
+      {!loading && !error && rows.length === 0 && <p>No submissions found.</p>}
 
       {!loading && !error && rows.length > 0 && (
         <div style={{ marginTop: 16 }}>
@@ -102,50 +85,35 @@ export default function DailyProductionPage() {
                 <th style={th}>NAME</th>
                 <th style={th}>MACHINE</th>
                 <th style={th}>SO</th>
-                <th style={th}>DETAIL</th>
-                <th style={th}>LOCATION</th>
-                <th style={th}>STITCHES</th>
-                <th style={th}>PIECES</th>
-                <th style={th}>3D</th>
-                <th style={th}>KNIT</th>
-                <th style={th}>COMPLETE</th>
+                <th style={th}>LINES</th>
+                <th style={th}>TOTAL STITCHES</th>
+                <th style={th}>TOTAL PIECES</th>
                 <th style={th}>NOTES</th>
                 <th style={th}></th>
               </tr>
             </thead>
-
             <tbody>
-              {rows.map((r) => {
-                const editHref = r.submissionId
-                  ? `/daily-production/${r.submissionId}`
-                  : `/daily-production/${r.id}`; // fallback (old rows)
-
-                return (
-                  <tr key={r.id}>
-                    <td style={td}>{r.entryTs ?? ""}</td>
-                    <td style={td}>{r.name ?? ""}</td>
-                    <td style={td}>{r.machineNumber ?? ""}</td>
-                    <td style={td}>{r.salesOrder ?? ""}</td>
-                    <td style={td}>{r.detailNumber ?? ""}</td>
-                    <td style={td}>{r.embroideryLocation ?? ""}</td>
-                    <td style={td}>{r.stitches ?? ""}</td>
-                    <td style={td}>{r.pieces ?? ""}</td>
-                    <td style={td}>{fmtBool(r.is3d)}</td>
-                    <td style={td}>{fmtBool(r.isKnit)}</td>
-                    <td style={td}>{fmtBool(r.detailComplete)}</td>
-                    <td style={{ ...td, whiteSpace: "normal" }}>{r.notes ?? ""}</td>
-                    <td style={td}>
-                      <Link href={editHref}>Edit</Link>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td style={td}>{r.entryTs}</td>
+                  <td style={td}>{r.name}</td>
+                  <td style={td}>{r.machineNumber ?? ""}</td>
+                  <td style={td}>{r.salesOrder ?? ""}</td>
+                  <td style={td}>{r.lineCount}</td>
+                  <td style={td}>{r.totalStitches ?? ""}</td>
+                  <td style={td}>{r.totalPieces ?? ""}</td>
+                  <td style={{ ...td, whiteSpace: "normal" }}>{r.notes ?? ""}</td>
+                  <td style={td}>
+                    <Link href={`/daily-production/${r.id}`}>Edit</Link>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
 
-          <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
-            Edit opens the submission editor (new saves) when a submission id exists.
-          </p>
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+            Note: This list shows submissions created after the new submission system was enabled.
+          </div>
         </div>
       )}
     </div>
@@ -154,10 +122,7 @@ export default function DailyProductionPage() {
 
 /* ---------- Styles ---------- */
 
-const page: React.CSSProperties = {
-  padding: 24,
-  maxWidth: "100%",
-};
+const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
 
 const headerRow: React.CSSProperties = {
   display: "flex",
@@ -184,4 +149,3 @@ const td: React.CSSProperties = {
   padding: 8,
   verticalAlign: "top",
 };
-
