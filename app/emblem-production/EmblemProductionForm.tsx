@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Line = {
-  salesOrder: string;
   detailNumber: string;
   emblemType: string;
   logoName: string;
@@ -13,14 +12,29 @@ type Line = {
 };
 
 function blankLine(): Line {
-  return {
-    salesOrder: "",
-    detailNumber: "",
-    emblemType: "",
-    logoName: "",
-    pieces: "",
-    notes: "",
-  };
+  return { detailNumber: "", emblemType: "", logoName: "", pieces: "", notes: "" };
+}
+
+/**
+ * Returns YYYY-MM-DD for "today" in America/Chicago
+ * (Central Time, including DST automatically).
+ */
+function centralTodayISODate(): string {
+  const now = new Date();
+
+  // Get "today" components in Central time
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const yyyy = parts.find((p) => p.type === "year")?.value ?? "";
+  const mm = parts.find((p) => p.type === "month")?.value ?? "";
+  const dd = parts.find((p) => p.type === "day")?.value ?? "";
+
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export default function EmblemProductionForm({
@@ -36,11 +50,45 @@ export default function EmblemProductionForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [entryDate, setEntryDate] = useState("");
+  // ✅ keep entryDate as internal state, but HIDE it from the UI.
+  // For add: default to Central "today"
+  const [entryDate, setEntryDate] = useState(mode === "add" ? centralTodayISODate() : "");
+
+  const [salesOrder, setSalesOrder] = useState("");
   const [headerNotes, setHeaderNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([blankLine()]);
 
-  // Auto-populate on edit
+  // ✅ success banner like QC
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // emblem types dropdown
+  const [emblemTypes, setEmblemTypes] = useState<string[]>([]);
+  const [typesLoading, setTypesLoading] = useState(false);
+
+  // Load emblem types
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setTypesLoading(true);
+        const res = await fetch("/api/emblem-types", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Failed to load emblem types");
+        if (!cancelled) setEmblemTypes(data.types ?? []);
+      } catch {
+        // keep usable even if types fail
+      } finally {
+        if (!cancelled) setTypesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load edit payload
   useEffect(() => {
     if (mode !== "edit" || !id) return;
 
@@ -48,6 +96,7 @@ export default function EmblemProductionForm({
       try {
         setLoading(true);
         setError(null);
+        setSuccessMsg(null);
 
         const res = await fetch(`/api/emblem-production-submissions?id=${encodeURIComponent(id)}`, {
           cache: "no-store",
@@ -55,11 +104,19 @@ export default function EmblemProductionForm({
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || "Failed to load submission");
 
-        setEntryDate(data.header?.entry_date ?? "");
+        // ✅ keep original entry date (hidden)
+        // Expecting YYYY-MM-DD from API; if not, we defensively slice.
+        const rawEntryDate = data.header?.entry_date ?? "";
+        const safeEntryDate =
+          typeof rawEntryDate === "string" && rawEntryDate.includes("T")
+            ? rawEntryDate.slice(0, 10)
+            : rawEntryDate;
+
+        setEntryDate(safeEntryDate);
+        setSalesOrder(data.header?.sales_order ?? "");
         setHeaderNotes(data.header?.notes ?? "");
 
         const mapped: Line[] = (data.lines ?? []).map((l: any) => ({
-          salesOrder: l.sales_order ?? "",
           detailNumber: l.detail_number?.toString?.() ?? "",
           emblemType: l.emblem_type ?? "",
           logoName: l.logo_name ?? "",
@@ -88,14 +145,18 @@ export default function EmblemProductionForm({
     setLines((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
-  function validate() {
-    if (!entryDate) return "Entry Date is required";
+  const totalPieces = useMemo(() => {
+    return lines.reduce((sum, l) => sum + (Number(l.pieces) || 0), 0);
+  }, [lines]);
 
+  function validate() {
+    // entryDate is hidden, but still required for payload
+    if (!entryDate) return "Entry Date is required";
+    if (!salesOrder.trim()) return "Sales Order is required";
     if (!lines.length) return "At least one line is required";
 
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (!l.salesOrder?.trim()) return `Line ${i + 1}: Sales Order is required`;
       if (!l.pieces?.trim()) return `Line ${i + 1}: Pieces is required`;
 
       const piecesNum = Number(l.pieces);
@@ -106,20 +167,29 @@ export default function EmblemProductionForm({
     return null;
   }
 
+  function resetForNewAdd() {
+    // ✅ reset to Central "today"
+    setEntryDate(centralTodayISODate());
+    setSalesOrder("");
+    setHeaderNotes("");
+    setLines([blankLine()]);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       const v = validate();
       if (v) throw new Error(v);
 
       const payload: any = {
-        entryDate,
+        entryDate, // ✅ hidden but still submitted
+        salesOrder,
         headerNotes,
         lines: lines.map((l) => ({
-          salesOrder: l.salesOrder,
           detailNumber: l.detailNumber,
           emblemType: l.emblemType,
           logoName: l.logoName,
@@ -140,8 +210,14 @@ export default function EmblemProductionForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Save failed");
 
-      router.push("/emblem-production");
-      router.refresh();
+      if (mode === "add") {
+        setSuccessMsg(`Saved ${lines.length} line(s).`);
+        resetForNewAdd();
+        router.refresh();
+      } else {
+        router.push("/emblem-production");
+        router.refresh();
+      }
     } catch (e: any) {
       setError(e.message || "Save error");
     } finally {
@@ -152,130 +228,129 @@ export default function EmblemProductionForm({
   if (loading) return <div className="p-6">Loading…</div>;
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="max-w-4xl mx-auto space-y-4">
       {error && (
         <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div>
-          <label className="block text-sm font-medium mb-1">Entry Date</label>
-          <input
-            type="date"
-            className="w-full rounded border p-2"
-            value={entryDate}
-            onChange={(e) => setEntryDate(e.target.value)}
-            required
-          />
+      {successMsg && (
+        <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+          {successMsg}
         </div>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Header Notes</label>
-          <input
-            type="text"
-            className="w-full rounded border p-2"
-            value={headerNotes}
-            onChange={(e) => setHeaderNotes(e.target.value)}
-            placeholder="Optional"
-          />
-        </div>
+      {/* ✅ Entry Date is intentionally hidden to match other sections */}
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Sales Order</label>
+        <input
+          className="w-full rounded border p-2"
+          value={salesOrder}
+          onChange={(e) => setSalesOrder(e.target.value)}
+          placeholder="1234567"
+          required
+        />
       </div>
 
-      <div className="rounded border p-3 space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1">Header Notes</label>
+        <input
+          className="w-full rounded border p-2"
+          value={headerNotes}
+          onChange={(e) => setHeaderNotes(e.target.value)}
+          placeholder="Optional"
+        />
+      </div>
+
+      <div className="rounded border p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="font-medium">Lines</div>
-          <button
-            type="button"
-            onClick={addLine}
-            className="rounded bg-black px-3 py-1.5 text-white text-sm"
-          >
+          <button type="button" onClick={addLine} className="rounded border px-3 py-1.5 text-sm">
             + Add Line
           </button>
         </div>
 
         {lines.map((line, idx) => (
-          <div key={idx} className="grid grid-cols-1 gap-3 md:grid-cols-6 border-t pt-3">
-            <div>
-              <label className="block text-xs font-medium mb-1">Sales Order</label>
-              <input
-                className="w-full rounded border p-2"
-                value={line.salesOrder}
-                onChange={(e) => updateLine(idx, { salesOrder: e.target.value })}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1">Detail #</label>
-              <input
-                className="w-full rounded border p-2"
-                value={line.detailNumber}
-                onChange={(e) => updateLine(idx, { detailNumber: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1">Emblem Type</label>
-              <input
-                className="w-full rounded border p-2"
-                value={line.emblemType}
-                onChange={(e) => updateLine(idx, { emblemType: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1">Logo Name</label>
-              <input
-                className="w-full rounded border p-2"
-                value={line.logoName}
-                onChange={(e) => updateLine(idx, { logoName: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1">Pieces</label>
-              <input
-                type="number"
-                className="w-full rounded border p-2"
-                value={line.pieces}
-                onChange={(e) => updateLine(idx, { pieces: e.target.value })}
-                required
-                min={0}
-              />
-            </div>
-
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <label className="block text-xs font-medium mb-1">Line Notes</label>
-                <input
-                  className="w-full rounded border p-2"
-                  value={line.notes}
-                  onChange={(e) => updateLine(idx, { notes: e.target.value })}
-                />
-              </div>
-
+          <div key={idx} className="rounded border p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="font-medium">Line {idx + 1}</div>
               <button
                 type="button"
                 onClick={() => removeLine(idx)}
-                className="rounded border px-3 py-2 text-sm"
+                className="rounded border px-3 py-1.5 text-sm"
                 disabled={lines.length === 1}
-                title={lines.length === 1 ? "Must have at least one line" : "Remove line"}
               >
-                ✕
+                Remove
               </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Detail #</label>
+                <input
+                  className="w-full rounded border p-2"
+                  value={line.detailNumber}
+                  onChange={(e) => updateLine(idx, { detailNumber: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Emblem Type</label>
+                <select
+                  className="w-full rounded border p-2"
+                  value={line.emblemType}
+                  onChange={(e) => updateLine(idx, { emblemType: e.target.value })}
+                >
+                  <option value="">{typesLoading ? "Loading..." : "Select emblem type"}</option>
+                  {emblemTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Logo Name</label>
+                <input
+                  className="w-full rounded border p-2"
+                  value={line.logoName}
+                  onChange={(e) => updateLine(idx, { logoName: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Pieces</label>
+                <input
+                  type="number"
+                  className="w-full rounded border p-2"
+                  value={line.pieces}
+                  onChange={(e) => updateLine(idx, { pieces: e.target.value })}
+                  min={0}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Line Notes</label>
+              <input
+                className="w-full rounded border p-2"
+                value={line.notes}
+                onChange={(e) => updateLine(idx, { notes: e.target.value })}
+                placeholder="Optional"
+              />
             </div>
           </div>
         ))}
+
+        <div className="text-sm text-gray-600">Total Pieces: {totalPieces}</div>
       </div>
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-60"
-      >
-        {saving ? "Saving..." : mode === "add" ? "Submit" : "Update"}
+      <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-60">
+        {saving ? "Saving..." : "Save"}
       </button>
     </form>
   );

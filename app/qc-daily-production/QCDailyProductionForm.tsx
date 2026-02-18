@@ -267,7 +267,7 @@ export default function QCDailyProductionForm({ initialSubmissionId }: Props) {
             />
           </div>
 
-          {!isEditRoute && (
+          {/* {!isEditRoute && (
             <div className="md:col-span-3">
               <label className="block text-sm font-medium">Load Previous Submission (optional)</label>
               <select
@@ -290,7 +290,7 @@ export default function QCDailyProductionForm({ initialSubmissionId }: Props) {
                 ))}
               </select>
             </div>
-          )}
+          )} */}
         </div>
       </div>
 

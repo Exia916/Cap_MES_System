@@ -1,24 +1,24 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyJwt } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { db } from "@/lib/db";
 
 export async function GET(req: Request) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("auth_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const payload = verifyJwt(token);
-  if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("auth_token")?.value;
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const payload = verifyJwt(token);
+    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-    const headerRes = await query(
+    const headerRes = await db.query(
       `
-      SELECT id, entry_ts, entry_date, name, employee_number, notes
+      SELECT id, entry_ts, entry_date, sales_order::text as sales_order, name, employee_number, notes
       FROM emblem_daily_submissions
       WHERE id = $1::uuid
       LIMIT 1
@@ -29,11 +29,10 @@ export async function GET(req: Request) {
     const header = headerRes.rows[0];
     if (!header) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const linesRes = await query(
+    const linesRes = await db.query(
       `
       SELECT
         id,
-        sales_order::text as sales_order,
         detail_number,
         emblem_type,
         logo_name,
@@ -49,6 +48,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ header, lines: linesRes.rows });
   } catch (err: any) {
     console.error("emblem-production-submissions GET error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
