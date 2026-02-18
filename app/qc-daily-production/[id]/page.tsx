@@ -1,10 +1,16 @@
 import QCDailyProductionForm from "../QCDailyProductionForm";
 
-export default function EditQCDailyProductionPage({ params }: { params: { id: string } }) {
+export default async function EditQCDailyProductionPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const { id } = await params;
+
   return (
     <div style={{ padding: 16 }}>
-      <h1>Edit QC Daily Production</h1>
-      <QCDailyProductionForm mode="edit" id={params.id} />
+      <h1>Edit QC Daily Production Submission</h1>
+      <QCDailyProductionForm initialSubmissionId={id} />
     </div>
   );
 }

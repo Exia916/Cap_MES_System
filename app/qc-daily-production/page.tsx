@@ -3,16 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Row = any;
-
-function getDefaultShiftDateYYYYMMDD(): string {
-  const now = new Date();
+function getDefaultYYYYMMDD(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Chicago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(now);
+  }).formatToParts(new Date());
 
   const yyyy = parts.find((p) => p.type === "year")?.value ?? "1970";
   const mm = parts.find((p) => p.type === "month")?.value ?? "01";
@@ -20,22 +17,34 @@ function getDefaultShiftDateYYYYMMDD(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+type Row = {
+  id: string;
+  entryTs: string;
+  name: string;
+  employeeNumber: number;
+  salesOrder: number | null;
+  lineCount: number;
+  notes: string | null;
+};
+
 export default function QCDailyProductionPage() {
+  const [entryDate, setEntryDate] = useState(() => getDefaultYYYYMMDD());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [shiftDate, setShiftDate] = useState(() => getDefaultShiftDateYYYYMMDD());
 
   async function load(date: string) {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/qc-daily-production-list?entryDate=${encodeURIComponent(date)}`)
-;
+      const res = await fetch(
+        `/api/qc-daily-production-submission-list?entryDate=${encodeURIComponent(date)}`,
+        { credentials: "include" }
+      );
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load QC entries.");
-      setRows(Array.isArray(data?.entries) ? data.entries : []);
+      if (!res.ok) throw new Error(data?.error || "Failed to load submissions.");
+      setRows(Array.isArray(data?.submissions) ? data.submissions : []);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
     } finally {
@@ -44,8 +53,8 @@ export default function QCDailyProductionPage() {
   }
 
   useEffect(() => {
-    load(shiftDate);
-  }, [shiftDate]);
+    load(entryDate);
+  }, [entryDate]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -56,14 +65,14 @@ export default function QCDailyProductionPage() {
 
       <div style={{ marginTop: 12 }}>
         <label>
-          Shift Date:{" "}
-          <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} />
+          Entry Date:{" "}
+          <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
         </label>
       </div>
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {!loading && !error && rows.length === 0 && <p>No entries found.</p>}
+      {!loading && !error && rows.length === 0 && <p>No submissions found.</p>}
 
       {!loading && !error && rows.length > 0 && (
         <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
@@ -72,28 +81,18 @@ export default function QCDailyProductionPage() {
               <th style={th}>DATE / TIME</th>
               <th style={th}>NAME</th>
               <th style={th}>SO</th>
-              <th style={th}>DETAIL</th>
-              <th style={th}>FLAT/3D</th>
-              <th style={th}>ORDER QTY</th>
-              <th style={th}>INSPECTED</th>
-              <th style={th}>REJECTED</th>
-              <th style={th}>SHIPPED</th>
+              <th style={th}>LINES</th>
               <th style={th}>NOTES</th>
               <th style={th}></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r: any) => (
+            {rows.map((r) => (
               <tr key={r.id}>
-                <td style={td}>{r.entryTs ?? ""}</td>
-                <td style={td}>{r.name ?? ""}</td>
-                <td style={td}>{r.salesOrderNumber ?? ""}</td>
-                <td style={td}>{r.detailNumber ?? ""}</td>
-                <td style={td}>{r.flatOr3d ?? ""}</td>
-                <td style={td}>{r.orderQuantity ?? ""}</td>
-                <td style={td}>{r.inspectedQuantity ?? ""}</td>
-                <td style={td}>{r.rejectedQuantity ?? ""}</td>
-                <td style={td}>{r.quantityShipped ?? ""}</td>
+                <td style={td}>{r.entryTs}</td>
+                <td style={td}>{r.name}</td>
+                <td style={td}>{r.salesOrder ?? ""}</td>
+                <td style={td}>{r.lineCount}</td>
                 <td style={{ ...td, whiteSpace: "normal" }}>{r.notes ?? ""}</td>
                 <td style={td}>
                   <Link href={`/qc-daily-production/${r.id}`}>Edit</Link>
