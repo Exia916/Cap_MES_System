@@ -1,137 +1,160 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { verifyJwt } from "@/lib/auth";
 import { db } from "@/lib/db";
 
-type MetricsSuccess = {
-  date: string;
-  totalStitches: number;
-  totalPieces: number;
-  qcFlatInspected: number;
-  qc3DInspected: number;
-  qcTotalInspected: number;
-  emblemSewPieces: number;
-  emblemStickerPieces: number;
-  emblemHeatSealPieces: number;
-  emblemTotalPieces: number;
-  laserTotalPieces: number;
-};
+export const runtime = "nodejs";
 
-type MetricsError = {
-  error: string;
-};
-
-type MetricsResponse = MetricsSuccess | MetricsError;
-
-function isValidYmd(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+function isYmd(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function toNumber(value: unknown): number {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
+function todayYmdChicago(): string {
+  const now = new Date();
+  const chicago = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/Chicago" })
+  );
+  const y = chicago.getFullYear();
+  const m = String(chicago.getMonth() + 1).padStart(2, "0");
+  const d = String(chicago.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
-export async function GET(req: NextRequest) {
-  const auth = getAuthFromRequest(req);
-  if (!auth) {
-    return NextResponse.json<MetricsResponse>({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const date = req.nextUrl.searchParams.get("date")?.trim() ?? "";
-  if (!date) {
-    return NextResponse.json<MetricsResponse>(
-      { error: "Missing date parameter" },
-      { status: 400 }
-    );
-  }
-
-  if (!isValidYmd(date)) {
-    return NextResponse.json<MetricsResponse>(
-      { error: "Invalid date format. Use YYYY-MM-DD" },
-      { status: 400 }
-    );
-  }
-
+export async function GET(req: Request) {
   try {
-    const [embroideryRes, qcRes, emblemRes, laserRes] = await Promise.all([
-      db.query<{
-        shift_stitches: string | number | null;
-        shift_pieces: string | number | null;
-      }>(
-        `
-        SELECT shift_stitches, shift_pieces
-        FROM public.embroidery_shift_totals
-        WHERE shift_date = $1::date
-        LIMIT 1
-        `,
-        [date]
-      ),
-      db.query<{
-        flat_totals: string | number | null;
-        three_d_totals: string | number | null;
-        total_quantity_inspected_by_date: string | number | null;
-      }>(
-        `
-        SELECT flat_totals, three_d_totals, total_quantity_inspected_by_date
-        FROM public.qc_daily_totals
-        WHERE entry_date = $1::date
-        LIMIT 1
-        `,
-        [date]
-      ),
-      db.query<{
-        sew: string | number | null;
-        sticker: string | number | null;
-        heat_seal: string | number | null;
-        total_pieces: string | number | null;
-      }>(
-        `
-        SELECT sew, sticker, heat_seal, total_pieces
-        FROM public.emblem_daily_totals
-        WHERE entry_date = $1::date
-        LIMIT 1
-        `,
-        [date]
-      ),
-      db.query<{
-        total_pieces_per_day: string | number | null;
-      }>(
-        `
-        SELECT total_pieces_per_day
-        FROM public.laser_daily_totals
-        WHERE entry_date = $1::date
-        LIMIT 1
-        `,
-        [date]
-      ),
-    ]);
+    // ---------------------------
+    // Auth
+    // ---------------------------
+    const cookieStore = await cookies();
+    const token = cookieStore.get("auth_token")?.value;
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const embroidery = embroideryRes.rows[0];
-    const qc = qcRes.rows[0];
-    const emblem = emblemRes.rows[0];
-    const laser = laserRes.rows[0];
+    const payload: any = verifyJwt(token);
+    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    return NextResponse.json<MetricsResponse>(
-      {
-        date,
-        totalStitches: toNumber(embroidery?.shift_stitches),
-        totalPieces: toNumber(embroidery?.shift_pieces),
-        qcFlatInspected: toNumber(qc?.flat_totals),
-        qc3DInspected: toNumber(qc?.three_d_totals),
-        qcTotalInspected: toNumber(qc?.total_quantity_inspected_by_date),
-        emblemSewPieces: toNumber(emblem?.sew),
-        emblemStickerPieces: toNumber(emblem?.sticker),
-        emblemHeatSealPieces: toNumber(emblem?.heat_seal),
-        emblemTotalPieces: toNumber(emblem?.total_pieces),
-        laserTotalPieces: toNumber(laser?.total_pieces_per_day),
-      },
-      { status: 200 }
+    const employeeNumber = Number(payload.employeeNumber);
+    if (!employeeNumber) {
+      return NextResponse.json(
+        { error: "Missing employeeNumber in token payload" },
+        { status: 400 }
+      );
+    }
+
+    const url = new URL(req.url);
+    const dateParam = (url.searchParams.get("date") || "").trim();
+    const date = isYmd(dateParam) ? dateParam : todayYmdChicago();
+
+    // ---------------------------
+// 1) Embroidery
+// Uses shift_date (NOT entry_ts)
+// ---------------------------
+const emb = await db.query<{
+  total_stitches: string | number | null;
+  total_pieces: string | number | null;
+}>(
+  `
+  SELECT
+    COALESCE(SUM(stitches * pieces), 0) AS total_stitches,
+    COALESCE(SUM(pieces), 0) AS total_pieces
+  FROM embroidery_daily_entries
+  WHERE employee_number = $1
+    AND shift_date = $2::date
+  `,
+  [employeeNumber, date]
+);
+
+    const totalStitches = Number(emb.rows[0]?.total_stitches ?? 0) || 0;
+    const totalPieces = Number(emb.rows[0]?.total_pieces ?? 0) || 0;
+
+    // ---------------------------
+    // 2) QC
+    // ---------------------------
+    const qc = await db.query<{
+      flat_inspected: string | number | null;
+      d3_inspected: string | number | null;
+      total_inspected: string | number | null;
+    }>(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN LOWER(flat_or_3d) = '3d' THEN inspected_quantity ELSE 0 END), 0) AS d3_inspected,
+        COALESCE(SUM(CASE WHEN LOWER(flat_or_3d) = '3d' THEN 0 ELSE inspected_quantity END), 0) AS flat_inspected,
+        COALESCE(SUM(inspected_quantity), 0) AS total_inspected
+      FROM qc_daily_entries
+      WHERE employee_number = $1
+        AND entry_date = $2::date
+      `,
+      [employeeNumber, date]
     );
-  } catch (error) {
-    console.error("Error computing dashboard metrics:", error);
-    return NextResponse.json<MetricsResponse>(
-      { error: "Failed to compute dashboard metrics" },
-      { status: 500 }
+
+    const qc3DInspected = Number(qc.rows[0]?.d3_inspected ?? 0) || 0;
+    const qcFlatInspected = Number(qc.rows[0]?.flat_inspected ?? 0) || 0;
+    const qcTotalInspected = Number(qc.rows[0]?.total_inspected ?? 0) || 0;
+
+    // ---------------------------
+    // 3) Emblem (submission header + lines)
+    // ---------------------------
+    const emblem = await db.query<{
+      sew_pieces: string | number | null;
+      sticker_pieces: string | number | null;
+      heat_seal_pieces: string | number | null;
+      total_pieces: string | number | null;
+    }>(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN LOWER(l.emblem_type) = 'sew' THEN l.pieces ELSE 0 END), 0) AS sew_pieces,
+        COALESCE(SUM(CASE WHEN LOWER(l.emblem_type) = 'sticker' THEN l.pieces ELSE 0 END), 0) AS sticker_pieces,
+        COALESCE(SUM(CASE WHEN LOWER(REPLACE(l.emblem_type, '_', ' ')) IN ('heat seal','heatseal') THEN l.pieces ELSE 0 END), 0) AS heat_seal_pieces,
+        COALESCE(SUM(l.pieces), 0) AS total_pieces
+      FROM emblem_daily_submissions s
+      JOIN emblem_daily_submission_lines l ON l.submission_id = s.id
+      WHERE s.employee_number = $1
+        AND s.entry_date = $2::date
+      `,
+      [employeeNumber, date]
     );
+
+    const emblemSewPieces = Number(emblem.rows[0]?.sew_pieces ?? 0) || 0;
+    const emblemStickerPieces = Number(emblem.rows[0]?.sticker_pieces ?? 0) || 0;
+    const emblemHeatSealPieces = Number(emblem.rows[0]?.heat_seal_pieces ?? 0) || 0;
+    const emblemTotalPieces = Number(emblem.rows[0]?.total_pieces ?? 0) || 0;
+
+    // ---------------------------
+    // 4) Laser
+    // ---------------------------
+    const laser = await db.query<{ total_pieces: string | number | null }>(
+      `
+      SELECT COALESCE(SUM(pieces_cut), 0) AS total_pieces
+      FROM laser_entries
+      WHERE employee_number = $1
+        AND entry_date = $2::date
+      `,
+      [employeeNumber, date]
+    );
+
+    const laserTotalPieces = Number(laser.rows[0]?.total_pieces ?? 0) || 0;
+
+    return NextResponse.json({
+      date,
+      totalStitches,
+      totalPieces,
+      qcFlatInspected,
+      qc3DInspected,
+      qcTotalInspected,
+      emblemSewPieces,
+      emblemStickerPieces,
+      emblemHeatSealPieces,
+      emblemTotalPieces,
+      laserTotalPieces,
+    });
+  } catch (err) {
+    console.error("dashboard-metrics error:", err);
+    const message =
+  err instanceof Error ? err.message : "Failed to compute dashboard metrics";
+
+return NextResponse.json(
+  { error: process.env.NODE_ENV === "production" ? "Failed to compute dashboard metrics" : message },
+  { status: 500 }
+);
+
   }
 }

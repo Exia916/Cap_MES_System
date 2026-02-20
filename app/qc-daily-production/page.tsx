@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
 
-function getDefaultYYYYMMDD(): string {
+function ymdChicago(d: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Chicago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(d);
 
   const yyyy = parts.find((p) => p.type === "year")?.value ?? "1970";
   const mm = parts.find((p) => p.type === "month")?.value ?? "01";
@@ -17,105 +18,322 @@ function getDefaultYYYYMMDD(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-type Row = {
+function addDays(d: Date, days: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function startOfMonthChicago(ref: Date): string {
+  const ymd = ymdChicago(ref);
+  return `${ymd.slice(0, 8)}01`;
+}
+
+function endOfMonthChicago(ref: Date): string {
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  const last = new Date(y, m + 1, 0);
+  return ymdChicago(last);
+}
+
+function getRangeLastNDays(n: number): { from: string; to: string } {
+  const today = new Date();
+  const to = ymdChicago(today);
+  const from = ymdChicago(addDays(today, -(n - 1)));
+  return { from, to };
+}
+
+function getRangeToday(): { from: string; to: string } {
+  const t = ymdChicago(new Date());
+  return { from: t, to: t };
+}
+
+function getRangeThisMonth(): { from: string; to: string } {
+  const now = new Date();
+  return { from: startOfMonthChicago(now), to: endOfMonthChicago(now) };
+}
+
+function getRangePrevMonth(): { from: string; to: string } {
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 15);
+  return { from: startOfMonthChicago(prev), to: endOfMonthChicago(prev) };
+}
+
+type QcSubmissionRow = {
   id: string;
   entryTs: string;
+  entryDate: string;
   name: string;
   employeeNumber: number;
   salesOrder: number | null;
-  lineCount: number;
   notes: string | null;
+  createdAt: string;
+  lineCount: number;
+};
+
+type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount";
+
+type Filters = {
+  name: string;
+  salesOrderNumber: string; // starts-with
+  detailNumber: string;     // starts-with (exists on any line)
+  notes: string;            // contains (submission or any line notes)
+};
+
+const DEFAULT_FILTERS: Filters = {
+  name: "",
+  salesOrderNumber: "",
+  detailNumber: "",
+  notes: "",
 };
 
 export default function QCDailyProductionPage() {
-  const [entryDate, setEntryDate] = useState(() => getDefaultYYYYMMDD());
-  const [rows, setRows] = useState<Row[]>([]);
+  const def = useMemo(() => getRangeLastNDays(30), []);
+  const [entryDateFrom, setEntryDateFrom] = useState(def.from);
+  const [entryDateTo, setEntryDateTo] = useState(def.to);
+
+  const [rows, setRows] = useState<QcSubmissionRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(date: string) {
+  const [sortBy, setSortBy] = useState<SortBy>("entryTs");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [debouncedFilters, setDebouncedFilters] = useState<Filters>(DEFAULT_FILTERS);
+
+  const [pageSize, setPageSize] = useState(25);
+  const [pageIndex, setPageIndex] = useState(0);
+  const offset = pageIndex * pageSize;
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedFilters(filters), 300);
+    return () => window.clearTimeout(t);
+  }, [filters]);
+
+  // reset paging on query change
+  useEffect(() => {
+    setPageIndex(0);
+  }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
+
+  const queryString = useMemo(() => {
+    const sp = new URLSearchParams();
+    sp.set("entryDateFrom", entryDateFrom);
+    sp.set("entryDateTo", entryDateTo);
+
+    sp.set("sortBy", sortBy);
+    sp.set("sortDir", sortDir);
+
+    sp.set("limit", String(pageSize));
+    sp.set("offset", String(offset));
+
+    if (debouncedFilters.name.trim()) sp.set("name", debouncedFilters.name.trim());
+    if (debouncedFilters.salesOrderNumber.trim()) sp.set("salesOrderNumber", debouncedFilters.salesOrderNumber.trim());
+    if (debouncedFilters.detailNumber.trim()) sp.set("detailNumber", debouncedFilters.detailNumber.trim());
+    if (debouncedFilters.notes.trim()) sp.set("notes", debouncedFilters.notes.trim());
+
+    return sp.toString();
+  }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize, offset]);
+
+  async function load(qs: string) {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(
-        `/api/qc-daily-production-submission-list?entryDate=${encodeURIComponent(date)}`,
-        { credentials: "include" }
-      );
+      const res = await fetch(`/api/qc-daily-production-submission-list?${qs}`, {
+        credentials: "include",
+      });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load submissions.");
+      if (!res.ok) throw new Error(data?.error || "Failed to load QC submissions.");
+
       setRows(Array.isArray(data?.submissions) ? data.submissions : []);
+      setTotalCount(Number.isFinite(data?.totalCount) ? Number(data.totalCount) : 0);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
+      setRows([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load(entryDate);
-  }, [entryDate]);
+    load(queryString);
+  }, [queryString]);
+
+  function onToggleSort(key: string) {
+    const next = key as SortBy;
+    if (sortBy !== next) {
+      setSortBy(next);
+      setSortDir("asc");
+      return;
+    }
+    setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+  }
+
+  function onFilterChange(key: string, value: string) {
+    if (key in DEFAULT_FILTERS) {
+      setFilters((f) => ({ ...f, [key]: value }));
+    }
+  }
+
+  function clearFilters() {
+    setFilters(DEFAULT_FILTERS);
+  }
+
+  function applyRange(r: { from: string; to: string }) {
+    setEntryDateFrom(r.from);
+    setEntryDateTo(r.to);
+  }
+
+  const columns: Column<QcSubmissionRow>[] = useMemo(
+  () => [
+    {
+      key: "entryDate",
+      header: "ENTRY DATE",
+      sortable: true,
+      filterRender: (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            style={filterInput}
+            type="date"
+            value={entryDateFrom}
+            onChange={(e) => setEntryDateFrom(e.target.value)}
+          />
+          <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
+          <input
+            style={filterInput}
+            type="date"
+            value={entryDateTo}
+            onChange={(e) => setEntryDateTo(e.target.value)}
+          />
+        </div>
+      ),
+      render: (r) => r.entryDate ?? "",
+    },
+
+    {
+      key: "name",
+      header: "NAME",
+      sortable: true,
+      filterable: true,
+      placeholder: "Name",
+      render: (r) => r.name ?? "",
+    },
+
+    {
+      key: "salesOrderNumber",
+      header: "SO",
+      sortable: true,
+      filterable: true,
+      placeholder: "SO (starts with)",
+      render: (r) => r.salesOrder ?? "",
+    },
+
+    {
+      key: "lineCount",
+      header: "LINES",
+      sortable: true,
+      render: (r) => r.lineCount ?? 0,
+    },
+
+    {
+      key: "notes",
+      header: "NOTES",
+      filterable: true,
+      placeholder: "Notes (submission or line)",
+      render: (r) => (
+        <span style={{ whiteSpace: "normal" }}>
+          {r.notes ?? ""}
+        </span>
+      ),
+    },
+
+    {
+      key: "edit",
+      header: "",
+      render: (r) => (
+        <Link href={`/qc-daily-production/${r.id}`}>
+          Edit
+        </Link>
+      ),
+    },
+  ],
+  [entryDateFrom, entryDateTo]
+);
+
+
+  const toolbar = (
+    <>
+      <button type="button" onClick={clearFilters} style={btnSecondary} disabled={loading}>
+        Clear Filters
+      </button>
+
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} style={btnSecondary} disabled={loading}>
+        Last 7
+      </button>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} style={btnSecondary} disabled={loading}>
+        Last 30
+      </button>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} style={btnSecondary} disabled={loading}>
+        Last 90
+      </button>
+      <button type="button" onClick={() => applyRange(getRangeThisMonth())} style={btnSecondary} disabled={loading}>
+        This Month
+      </button>
+      <button type="button" onClick={() => applyRange(getRangePrevMonth())} style={btnSecondary} disabled={loading}>
+        Prev Month
+      </button>
+      <button type="button" onClick={() => applyRange(getRangeToday())} style={btnSecondary} disabled={loading}>
+        Today Only
+      </button>
+    </>
+  );
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={page}>
+      <div style={headerRow}>
         <h1 style={{ margin: 0 }}>QC Daily Production</h1>
         <Link href="/qc-daily-production/add">Add Entry</Link>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <label>
-          Entry Date:{" "}
-          <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
-        </label>
-      </div>
-
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {!loading && !error && rows.length === 0 && <p>No submissions found.</p>}
-
-      {!loading && !error && rows.length > 0 && (
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
-          <thead>
-            <tr>
-              <th style={th}>DATE / TIME</th>
-              <th style={th}>NAME</th>
-              <th style={th}>SO</th>
-              <th style={th}>LINES</th>
-              <th style={th}>NOTES</th>
-              <th style={th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td style={td}>{r.entryTs}</td>
-                <td style={td}>{r.name}</td>
-                <td style={td}>{r.salesOrder ?? ""}</td>
-                <td style={td}>{r.lineCount}</td>
-                <td style={{ ...td, whiteSpace: "normal" }}>{r.notes ?? ""}</td>
-                <td style={td}>
-                  <Link href={`/qc-daily-production/${r.id}`}>Edit</Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <DataTable<QcSubmissionRow>
+        columns={columns}
+        rows={rows}
+        loading={loading}
+        error={error}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onToggleSort={onToggleSort}
+        filters={filters}
+        onFilterChange={onFilterChange}
+        totalCount={totalCount}
+        pageIndex={pageIndex}
+        pageSize={pageSize}
+        onPageIndexChange={setPageIndex}
+        onPageSizeChange={setPageSize}
+        toolbar={toolbar}
+        rowKey={(r) => r.id}
+        emptyText="No QC submissions found."
+      />
     </div>
   );
 }
 
-const th: React.CSSProperties = {
-  textAlign: "left",
-  borderBottom: "1px solid #ddd",
-  padding: 8,
-  fontSize: 12,
-  whiteSpace: "nowrap",
+const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
+
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
 };
 
-const td: React.CSSProperties = {
-  borderBottom: "1px solid #eee",
-  padding: 8,
-  verticalAlign: "top",
+const filterInput: React.CSSProperties = {
+  width: "100%",
+  fontSize: 12,
+  padding: "4px 6px",
+  border: "1px solid #ddd",
+  borderRadius: 4,
 };

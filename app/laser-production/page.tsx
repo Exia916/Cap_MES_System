@@ -59,49 +59,40 @@ function getRangePrevMonth(): { from: string; to: string } {
   return { from: startOfMonthChicago(prev), to: endOfMonthChicago(prev) };
 }
 
-type SubmissionRow = {
+type Row = {
   id: string;
   entryTs: string;
-  shiftDate?: string;
+  entryDate: string;
   name: string;
-  machineNumber: number | null;
-  salesOrder: number | null;
-  lineCount: number;
-  totalStitches: number | null;
-  totalPieces: number | null;
+  employeeNumber: number | null;
+  salesOrder: string | null;
+  leatherStyleColor: string | null;
+  piecesCut: number | null;
   notes: string | null;
 };
 
-type SortBy =
-  | "shiftDate"
-  | "entryTs"
-  | "name"
-  | "machineNumber"
-  | "salesOrder"
-  | "lineCount"
-  | "totalStitches"
-  | "totalPieces";
+type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "leatherStyleColor" | "piecesCut";
 
 type Filters = {
   name: string;
-  machineNumber: string;
-  salesOrder: string;
+  salesOrder: string; // starts-with
+  leatherStyleColor: string;
   notes: string;
 };
 
 const DEFAULT_FILTERS: Filters = {
   name: "",
-  machineNumber: "",
   salesOrder: "",
+  leatherStyleColor: "",
   notes: "",
 };
 
-export default function DailyProductionPage() {
+export default function LaserProductionListPage() {
   const def = useMemo(() => getRangeLastNDays(30), []);
-  const [shiftDateFrom, setShiftDateFrom] = useState(def.from);
-  const [shiftDateTo, setShiftDateTo] = useState(def.to);
+  const [entryDateFrom, setEntryDateFrom] = useState(def.from);
+  const [entryDateTo, setEntryDateTo] = useState(def.to);
 
-  const [rows, setRows] = useState<SubmissionRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
@@ -113,8 +104,8 @@ export default function DailyProductionPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [debouncedFilters, setDebouncedFilters] = useState<Filters>(DEFAULT_FILTERS);
 
-  const [pageSize, setPageSize] = useState<number>(25);
-  const [pageIndex, setPageIndex] = useState<number>(0);
+  const [pageSize, setPageSize] = useState(25);
+  const [pageIndex, setPageIndex] = useState(0);
 
   const offset = pageIndex * pageSize;
 
@@ -123,15 +114,14 @@ export default function DailyProductionPage() {
     return () => window.clearTimeout(t);
   }, [filters]);
 
-  // reset to first page when query changes
   useEffect(() => {
     setPageIndex(0);
-  }, [shiftDateFrom, shiftDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
+  }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
 
   const queryString = useMemo(() => {
     const sp = new URLSearchParams();
-    sp.set("shiftDateFrom", shiftDateFrom);
-    sp.set("shiftDateTo", shiftDateTo);
+    sp.set("entryDateFrom", entryDateFrom);
+    sp.set("entryDateTo", entryDateTo);
 
     sp.set("sortBy", sortBy);
     sp.set("sortDir", sortDir);
@@ -140,26 +130,26 @@ export default function DailyProductionPage() {
     sp.set("offset", String(offset));
 
     if (debouncedFilters.name.trim()) sp.set("name", debouncedFilters.name.trim());
-    if (debouncedFilters.machineNumber.trim()) sp.set("machineNumber", debouncedFilters.machineNumber.trim());
     if (debouncedFilters.salesOrder.trim()) sp.set("salesOrder", debouncedFilters.salesOrder.trim());
+    if (debouncedFilters.leatherStyleColor.trim()) sp.set("leatherStyleColor", debouncedFilters.leatherStyleColor.trim());
     if (debouncedFilters.notes.trim()) sp.set("notes", debouncedFilters.notes.trim());
 
     return sp.toString();
-  }, [shiftDateFrom, shiftDateTo, sortBy, sortDir, debouncedFilters, pageSize, offset]);
+  }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize, offset]);
 
   async function load(qs: string) {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/daily-production-submission-list?${qs}`, {
+      const res = await fetch(`/api/laser-production-list?${qs}`, {
         credentials: "include",
+        cache: "no-store",
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load submissions.");
+      if (!res.ok) throw new Error(data?.error || "Failed to load laser entries.");
 
-      setRows(Array.isArray(data?.submissions) ? data.submissions : []);
+      setRows(Array.isArray(data?.entries) ? data.entries : []);
       setTotalCount(Number.isFinite(data?.totalCount) ? Number(data.totalCount) : 0);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
@@ -185,7 +175,6 @@ export default function DailyProductionPage() {
   }
 
   function onFilterChange(key: string, value: string) {
-    // date range is handled separately by its own inputs
     if (key in DEFAULT_FILTERS) {
       setFilters((f) => ({ ...f, [key]: value }));
     }
@@ -196,71 +185,41 @@ export default function DailyProductionPage() {
   }
 
   function applyRange(r: { from: string; to: string }) {
-    setShiftDateFrom(r.from);
-    setShiftDateTo(r.to);
+    setEntryDateFrom(r.from);
+    setEntryDateTo(r.to);
   }
 
-  const columns: Column<SubmissionRow>[] = useMemo(
+  const columns: Column<Row>[] = useMemo(
     () => [
       {
-        key: "shiftDate",
-        header: "SHIFT DATE",
+        key: "entryDate",
+        header: "ENTRY DATE",
         sortable: true,
         filterRender: (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input
-              style={filterInput}
-              type="date"
-              value={shiftDateFrom}
-              onChange={(e) => setShiftDateFrom(e.target.value)}
-              title="From"
-            />
+            <input style={filterInput} type="date" value={entryDateFrom} onChange={(e) => setEntryDateFrom(e.target.value)} />
             <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
-            <input
-              style={filterInput}
-              type="date"
-              value={shiftDateTo}
-              onChange={(e) => setShiftDateTo(e.target.value)}
-              title="To"
-            />
+            <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
           </div>
         ),
-        render: (r) => r.shiftDate ?? "",
+        render: (r) => r.entryDate ?? "",
       },
-      { key: "name", header: "NAME", sortable: true, filterable: true, placeholder: "Name", render: (r) => r.name },
+
+      { key: "name", header: "NAME", sortable: true, filterable: true, placeholder: "Name", render: (r) => r.name ?? "" },
+      { key: "salesOrder", header: "SO", sortable: true, filterable: true, placeholder: "SO (starts with)", render: (r) => r.salesOrder ?? "" },
       {
-        key: "machineNumber",
-        header: "MACHINE",
+        key: "leatherStyleColor",
+        header: "LEATHER STYLE/COLOR",
         sortable: true,
         filterable: true,
-        placeholder: "Machine (starts with)",
-        render: (r) => r.machineNumber ?? "",
+        placeholder: "Style/Color",
+        render: (r) => r.leatherStyleColor ?? "",
       },
-      {
-        key: "salesOrder",
-        header: "SO",
-        sortable: true,
-        filterable: true,
-        placeholder: "Sales Order (starts with)",
-        render: (r) => r.salesOrder ?? "",
-      },
-      { key: "lineCount", header: "LINES", sortable: true, render: (r) => r.lineCount },
-      { key: "totalStitches", header: "TOTAL STITCHES", sortable: true, render: (r) => r.totalStitches ?? "" },
-      { key: "totalPieces", header: "TOTAL PIECES", sortable: true, render: (r) => r.totalPieces ?? "" },
-      {
-        key: "notes",
-        header: "NOTES",
-        filterable: true,
-        placeholder: "Notes",
-        render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
-      },
-      {
-        key: "edit",
-        header: "",
-        render: (r) => <Link href={`/daily-production/${r.id}`}>Edit</Link>,
-      },
+      { key: "piecesCut", header: "PIECES CUT", sortable: true, render: (r) => r.piecesCut ?? 0 },
+      { key: "notes", header: "NOTES", filterable: true, placeholder: "Notes", render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span> },
+      { key: "edit", header: "", render: (r) => <Link href={`/laser-production/${r.id}`}>Edit</Link> },
     ],
-    [shiftDateFrom, shiftDateTo]
+    [entryDateFrom, entryDateTo]
   );
 
   const toolbar = (
@@ -293,11 +252,11 @@ export default function DailyProductionPage() {
   return (
     <div style={page}>
       <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>Daily Production</h1>
-        <Link href="/daily-production/add">Add Entry</Link>
+        <h1 style={{ margin: 0 }}>Laser Production</h1>
+        <Link href="/laser-production/add">Add Entry</Link>
       </div>
 
-      <DataTable<SubmissionRow>
+      <DataTable<Row>
         columns={columns}
         rows={rows}
         loading={loading}
@@ -314,17 +273,11 @@ export default function DailyProductionPage() {
         onPageSizeChange={setPageSize}
         toolbar={toolbar}
         rowKey={(r) => r.id}
-        emptyText="No submissions found."
+        emptyText="No laser entries found."
       />
-
-      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-        Note: This list shows submissions created after the new submission system was enabled.
-      </div>
     </div>
   );
 }
-
-/* ---------- Styles ---------- */
 
 const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
 
@@ -334,7 +287,6 @@ const headerRow: React.CSSProperties = {
   alignItems: "center",
 };
 
-// local input style to match DataTable inputs
 const filterInput: React.CSSProperties = {
   width: "100%",
   fontSize: 12,

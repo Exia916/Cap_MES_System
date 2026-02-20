@@ -295,3 +295,142 @@ export async function listQCSubmissionSummariesByEntryDate(input: {
 
   return rows as any;
 }
+
+// ------------------------------
+// Range + filters + paging list
+// ------------------------------
+
+export type QCSubmissionSummaryRow = {
+  id: string;
+  entryTs: string;
+  entryDate: string;
+  name: string;
+  employeeNumber: number;
+  salesOrder: number | null;
+  notes: string | null;
+  createdAt: string;
+  lineCount: number;
+};
+
+export type ListQCSubmissionSummariesArgs = {
+  entryDateFrom: string; // YYYY-MM-DD
+  entryDateTo: string;   // YYYY-MM-DD
+  employeeNumber?: number; // non-admin restriction
+
+  // filters
+  name?: string;                  // contains
+  notes?: string;                 // contains (submission notes OR any line notes)
+  salesOrderStartsWith?: string;  // starts-with on submission sales_order
+  detailStartsWith?: string;      // starts-with on ANY line.detail_number
+
+  // sort + paging
+  sortBy?: "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount";
+  sortDir?: "asc" | "desc";
+  limit: number;
+  offset: number;
+};
+
+export async function listQCSubmissionSummariesRange(
+  input: ListQCSubmissionSummariesArgs
+): Promise<{ rows: QCSubmissionSummaryRow[]; totalCount: number }> {
+  const params: any[] = [input.entryDateFrom, input.entryDateTo];
+
+  let where = `s.entry_date BETWEEN $1::date AND $2::date`;
+
+  if (input.employeeNumber != null) {
+    params.push(input.employeeNumber);
+    where += ` AND s.employee_number = $${params.length}`;
+  }
+
+  if (input.name?.trim()) {
+    params.push(`%${input.name.trim()}%`);
+    where += ` AND s.name ILIKE $${params.length}`;
+  }
+
+  if (input.salesOrderStartsWith?.trim()) {
+    params.push(`${input.salesOrderStartsWith.trim()}%`);
+    where += ` AND COALESCE(s.sales_order::text,'') LIKE $${params.length}`;
+  }
+
+  if (input.detailStartsWith?.trim()) {
+    params.push(`${input.detailStartsWith.trim()}%`);
+    where += `
+      AND EXISTS (
+        SELECT 1
+        FROM public.qc_daily_entries e2
+        WHERE e2.submission_id = s.id
+          AND COALESCE(e2.detail_number::text,'') LIKE $${params.length}
+      )
+    `;
+  }
+
+  if (input.notes?.trim()) {
+    params.push(`%${input.notes.trim()}%`);
+    where += `
+      AND (
+        COALESCE(s.notes,'') ILIKE $${params.length}
+        OR EXISTS (
+          SELECT 1
+          FROM public.qc_daily_entries e3
+          WHERE e3.submission_id = s.id
+            AND COALESCE(e3.notes,'') ILIKE $${params.length}
+        )
+      )
+    `;
+  }
+
+  const sortBy = input.sortBy ?? "entryTs";
+  const sortDir = input.sortDir === "asc" ? "ASC" : "DESC";
+
+  // ✅ IMPORTANT: ORDER BY must reference "b" columns (outer query), NOT s/e
+  const ORDER_MAP_B: Record<string, string> = {
+    entryTs: `b."entryTs"`,
+    entryDate: `b."entryDate"`,
+    name: `b."name"`,
+    salesOrder: `b."salesOrder"`,
+    lineCount: `b."lineCount"`,
+  };
+
+  const orderExpr = ORDER_MAP_B[sortBy] ?? ORDER_MAP_B.entryTs;
+  const orderBySql = `${orderExpr} ${sortDir}, b."id" DESC`;
+
+  params.push(input.limit);
+  const limitParam = `$${params.length}`;
+  params.push(input.offset);
+  const offsetParam = `$${params.length}`;
+
+  const { rows } = await db.query(
+    `
+    WITH base AS (
+      SELECT
+        s.id,
+        s.entry_ts AS "entryTs",
+        s.entry_date AS "entryDate",
+        s.name AS "name",
+        s.employee_number AS "employeeNumber",
+        s.sales_order AS "salesOrder",
+        s.notes AS "notes",
+        s.created_at AS "createdAt",
+        COUNT(e.id)::int AS "lineCount"
+      FROM public.qc_daily_submissions s
+      LEFT JOIN public.qc_daily_entries e
+        ON e.submission_id = s.id
+      WHERE ${where}
+      GROUP BY s.id
+    )
+    SELECT
+      b.*,
+      (SELECT COUNT(*) FROM base)::int AS "totalCount"
+    FROM base b
+    ORDER BY ${orderBySql}
+    LIMIT ${limitParam}
+    OFFSET ${offsetParam}
+    `,
+    params
+  );
+
+  const totalCount = rows.length ? Number((rows[0] as any).totalCount) : 0;
+  const clean = rows.map(({ totalCount: _tc, ...rest }: any) => rest) as QCSubmissionSummaryRow[];
+
+  return { rows: clean, totalCount };
+}

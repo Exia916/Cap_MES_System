@@ -1,83 +1,644 @@
-import Link from "next/link";
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { verifyJwt } from "@/lib/auth";
-import { query } from "@/lib/db";
+// app/admin/users/page.tsx
+"use client";
+
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 type UserRow = {
   id: string;
   username: string;
   display_name: string;
+  name: string | null;
+  employee_number: number | null;
   role: string;
   is_active: boolean;
-  created_at: string;
+  shift: string | null;
+  department: string | null;
 };
 
-export default async function AdminUsersPage() {
-  const cookieStore = cookies();
-  const token = cookieStore.get("auth_token")?.value;
+const ROLE_OPTIONS = ["ADMIN", "SUPERVISOR", "USER"] as const;
 
-  if (!token) {
-    redirect("/login");
+export default function AdminUsersPage() {
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
+
+  // ✅ search
+  const [search, setSearch] = useState("");
+
+  const [newUser, setNewUser] = useState({
+    username: "",
+    password: "",
+    display_name: "",
+    name: "",
+    employee_number: "",
+    role: "USER",
+    shift: "",
+    department: "",
+    is_active: true,
+  });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    id: "",
+    username: "",
+    display_name: "",
+    name: "",
+    employee_number: "",
+    role: "USER",
+    shift: "",
+    department: "",
+    is_active: true,
+    new_password: "",
+  });
+
+  async function loadUsers() {
+    setError("");
+    const res = await fetch("/api/admin/users", { cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((json as any)?.error || "Failed to load users");
+    setUsers(((json as any).users || []) as UserRow[]);
   }
 
-  const payload = verifyJwt(token);
-  if (!payload) {
-    redirect("/login");
-  }
+  useEffect(() => {
+    (async () => {
+      try {
+        await loadUsers();
+      } catch (e: any) {
+        setError(e?.message || "Failed to load users");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  if (payload.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
+  const normalizedSearch = search.trim().toLowerCase();
 
-  const res = await query<UserRow>(
-    `SELECT id, username, display_name, role, is_active, created_at
-     FROM users
-     ORDER BY username ASC`
+  const matches = (u: UserRow) => {
+    if (!normalizedSearch) return true;
+
+    const haystack = [
+      u.username,
+      u.display_name,
+      u.name ?? "",
+      String(u.employee_number ?? ""),
+      String(u.role ?? ""),
+      u.shift ?? "",
+      u.department ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(normalizedSearch);
+  };
+
+  const totalActiveCount = useMemo(
+    () => users.filter((u) => u.is_active).length,
+    [users]
   );
 
+  const activeUsers = useMemo(
+    () => users.filter((u) => u.is_active).filter(matches),
+    [users, normalizedSearch]
+  );
+
+  const inactiveUsers = useMemo(
+    () => users.filter((u) => !u.is_active).filter(matches),
+    [users, normalizedSearch]
+  );
+
+  const onNewChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    const checked = (e.target as HTMLInputElement).checked;
+    setNewUser((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
+  };
+
+  const onEditChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    const checked = (e.target as HTMLInputElement).checked;
+    setEditForm((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
+  };
+
+  const createUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!newUser.username || !newUser.password || !newUser.role) {
+      setError("Username, password, and role are required.");
+      return;
+    }
+
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...newUser,
+        employee_number: newUser.employee_number
+          ? Number(newUser.employee_number)
+          : null,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError((json as any)?.error || "Failed to create user");
+      return;
+    }
+
+    setNewUser({
+      username: "",
+      password: "",
+      display_name: "",
+      name: "",
+      employee_number: "",
+      role: "USER",
+      shift: "",
+      department: "",
+      is_active: true,
+    });
+
+    await loadUsers();
+  };
+
+  const startEditing = (u: UserRow) => {
+    setEditingId(u.id);
+
+    // ✅ optional UX: keep row visible by searching for it
+    setSearch(u.username);
+
+    setEditForm({
+      id: u.id,
+      username: u.username,
+      display_name: u.display_name || "",
+      name: u.name || "",
+      employee_number: u.employee_number?.toString() || "",
+      role: (u.role || "USER").toUpperCase(),
+      shift: u.shift || "",
+      department: u.department || "",
+      is_active: u.is_active,
+      new_password: "",
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditForm({
+      id: "",
+      username: "",
+      display_name: "",
+      name: "",
+      employee_number: "",
+      role: "USER",
+      shift: "",
+      department: "",
+      is_active: true,
+      new_password: "",
+    });
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    const res = await fetch("/api/admin/users", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...editForm,
+        employee_number: editForm.employee_number
+          ? Number(editForm.employee_number)
+          : null,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError((json as any)?.error || "Failed to update user");
+      return;
+    }
+
+    // Keep editor open but clear password field
+    setEditForm((p) => ({ ...p, new_password: "" }));
+    await loadUsers();
+  };
+
+  const deactivateUser = async (id: string) => {
+    if (!confirm("Deactivate this user? They will no longer be able to log in."))
+      return;
+
+    setError("");
+
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError((json as any)?.error || "Failed to deactivate user");
+      return;
+    }
+
+    if (editingId === id) cancelEditing();
+
+    await loadUsers();
+  };
+
+  if (loading) return <div className="p-6">Loading admin users…</div>;
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Users</h1>
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/admin" className="text-blue-600 hover:underline">
-            Back to Admin
-          </Link>
-          <Link href="/dashboard" className="text-blue-600 hover:underline">
-            Dashboard
-          </Link>
+    <div className="p-6 space-y-4">
+      <div className="rounded-xl border bg-white p-4">
+        <h1 className="text-xl font-semibold">Admin – Users</h1>
+        <p className="text-sm text-gray-600">
+          Create, edit, reset passwords, and deactivate users.
+        </p>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {/* Add User */}
+      <div className="rounded-xl border bg-white p-4">
+        <h2 className="text-base font-semibold mb-3">Add User</h2>
+        <form
+          onSubmit={createUser}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <Field label="Name">
+            <input
+              className="input"
+              name="name"
+              value={newUser.name}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Display Name">
+            <input
+              className="input"
+              name="display_name"
+              value={newUser.display_name}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Username *">
+            <input
+              className="input"
+              name="username"
+              value={newUser.username}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Employee #">
+            <input
+              className="input"
+              name="employee_number"
+              value={newUser.employee_number}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Role *">
+            <select
+              className="input"
+              name="role"
+              value={newUser.role}
+              onChange={onNewChange}
+            >
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Password *">
+            <input
+              className="input"
+              type="password"
+              name="password"
+              value={newUser.password}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Shift">
+            <input
+              className="input"
+              name="shift"
+              value={newUser.shift}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <Field label="Department">
+            <input
+              className="input"
+              name="department"
+              value={newUser.department}
+              onChange={onNewChange}
+            />
+          </Field>
+
+          <div className="flex items-end gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                name="is_active"
+                checked={newUser.is_active}
+                onChange={onNewChange}
+              />
+              Active
+            </label>
+
+            <button className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
+              Add User
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Active Users */}
+      <div className="rounded-xl border bg-white p-4">
+        <h2 className="text-base font-semibold mb-3">Active Users</h2>
+
+        {/* ✅ Search */}
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 w-full">
+            <input
+              className="input w-full"
+              placeholder="Search by name, username, employee #, role, shift, department…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search ? (
+              <button
+                type="button"
+                className="rounded-full border px-3 py-2 text-sm whitespace-nowrap"
+                onClick={() => setSearch("")}
+                title="Clear search"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+
+          <div className="text-sm text-gray-600 whitespace-nowrap">
+            Showing <strong>{activeUsers.length}</strong> active
+            {search ? (
+              <>
+                {" "}
+                (filtered from <strong>{totalActiveCount}</strong>)
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-gray-600">
+              <tr className="border-b">
+                <th className="py-2 pr-3">Name</th>
+                <th className="py-2 pr-3">Username</th>
+                <th className="py-2 pr-3">Employee #</th>
+                <th className="py-2 pr-3">Role</th>
+                <th className="py-2 pr-3">Active</th>
+                <th className="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {activeUsers.map((u) => (
+                <Fragment key={u.id}>
+                  <tr className="border-b">
+                    <td className="py-2 pr-3">{u.display_name || u.name || "-"}</td>
+                    <td className="py-2 pr-3">{u.username}</td>
+                    <td className="py-2 pr-3">{u.employee_number ?? "-"}</td>
+                    <td className="py-2 pr-3">{String(u.role).toUpperCase()}</td>
+                    <td className="py-2 pr-3">{u.is_active ? "Yes" : "No"}</td>
+                    <td className="py-2 pr-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-full border px-3 py-1 text-xs"
+                          onClick={() => startEditing(u)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full bg-red-600 px-3 py-1 text-xs text-white"
+                          onClick={() => deactivateUser(u.id)}
+                        >
+                          Deactivate
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {editingId === u.id ? (
+                    <tr className="border-b">
+                      <td colSpan={6} className="py-3">
+                        <div className="rounded-lg border bg-gray-50 p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <div className="text-sm font-semibold">
+                              Edit User:{" "}
+                              <span className="font-mono">{u.username}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-full border px-3 py-1 text-xs"
+                              onClick={cancelEditing}
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          <form
+                            onSubmit={saveEdit}
+                            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                          >
+                            <Field label="Username">
+                              <input
+                                className="input"
+                                name="username"
+                                value={editForm.username}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="Display Name">
+                              <input
+                                className="input"
+                                name="display_name"
+                                value={editForm.display_name}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="Name">
+                              <input
+                                className="input"
+                                name="name"
+                                value={editForm.name}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="Employee #">
+                              <input
+                                className="input"
+                                name="employee_number"
+                                value={editForm.employee_number}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="Role">
+                              <select
+                                className="input"
+                                name="role"
+                                value={editForm.role}
+                                onChange={onEditChange}
+                              >
+                                {ROLE_OPTIONS.map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+
+                            <Field label="Shift">
+                              <input
+                                className="input"
+                                name="shift"
+                                value={editForm.shift}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="Department">
+                              <input
+                                className="input"
+                                name="department"
+                                value={editForm.department}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <Field label="New Password (optional)">
+                              <input
+                                className="input"
+                                type="password"
+                                name="new_password"
+                                value={editForm.new_password}
+                                onChange={onEditChange}
+                              />
+                            </Field>
+
+                            <div className="flex items-end gap-2">
+                              <label className="flex items-center gap-2 text-sm text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  name="is_active"
+                                  checked={editForm.is_active}
+                                  onChange={onEditChange}
+                                />
+                                Active
+                              </label>
+
+                              <button className="rounded-full bg-green-600 px-4 py-2 text-sm font-semibold text-white">
+                                Save
+                              </button>
+
+                              <button
+                                type="button"
+                                className="rounded-full border px-4 py-2 text-sm"
+                                onClick={cancelEditing}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              ))}
+
+              {activeUsers.length === 0 ? (
+                <tr>
+                  <td className="py-3 text-gray-500" colSpan={6}>
+                    No active users.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="text-left text-gray-600 border-b">
-            <tr>
-              <th className="py-2 pr-4">Username</th>
-              <th className="py-2 pr-4">Display Name</th>
-              <th className="py-2 pr-4">Role</th>
-              <th className="py-2 pr-4">Active</th>
-              <th className="py-2 pr-4">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {res.rows.map((user) => (
-              <tr key={user.id} className="border-b last:border-b-0">
-                <td className="py-2 pr-4">{user.username}</td>
-                <td className="py-2 pr-4">{user.display_name}</td>
-                <td className="py-2 pr-4">{user.role}</td>
-                <td className="py-2 pr-4">
-                  {user.is_active ? "Yes" : "No"}
-                </td>
-                <td className="py-2 pr-4">
-                  {new Date(user.created_at).toLocaleDateString()}
-                </td>
-              </tr>
+      {/* Inactive Users */}
+      {inactiveUsers.length ? (
+        <div className="rounded-xl border bg-white p-4">
+          <h2 className="text-base font-semibold mb-3">Inactive Users</h2>
+
+          {/* Same search affects inactive list too */}
+          <div className="text-sm text-gray-600 mb-2">
+            {search ? (
+              <>
+                Showing <strong>{inactiveUsers.length}</strong> inactive (filtered)
+              </>
+            ) : (
+              <>
+                Showing <strong>{inactiveUsers.length}</strong> inactive
+              </>
+            )}
+          </div>
+
+          <div className="text-sm text-gray-700 space-y-1">
+            {inactiveUsers.map((u) => (
+              <div key={u.id}>
+                <span className="font-mono">{u.username}</span>
+                {" — "}
+                {u.display_name || u.name || "-"}
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style jsx global>{`
+        .input {
+          width: 100%;
+          height: 36px;
+          border: 1px solid #d1d5db;
+          border-radius: 8px;
+          padding: 0 10px;
+          font-size: 14px;
+          background: white;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-sm font-medium text-gray-700">{label}</label>
+      {children}
     </div>
   );
 }

@@ -1,82 +1,166 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyJwt } from "@/lib/auth";
 import { db } from "@/lib/db";
 
-export async function GET(req: Request) {
+type Resp =
+  | { submissions: any[]; totalCount: number; limit: number; offset: number }
+  | { error: string };
+
+function isValidDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function clampInt(value: string | null, def: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return def;
+  const i = Math.trunc(n);
+  return Math.max(min, Math.min(max, i));
+}
+
+function ymdChicago(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const yyyy = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const mm = parts.find((p) => p.type === "month")?.value ?? "01";
+  const dd = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const ALLOWED_SORT = new Set([
+  "entryTs",
+  "entryDate",
+  "name",
+  "salesOrder",
+  "lineCount",
+  "totalPieces",
+]);
+
+export async function GET(req: NextRequest) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!token) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
 
     const payload = verifyJwt(token);
-    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!payload) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
 
-    const { searchParams } = new URL(req.url);
-    const entryDate = searchParams.get("entryDate"); // optional YYYY-MM-DD
-    const mine = searchParams.get("mine") === "true"; // optional
-    const salesOrderParam = searchParams.get("salesOrder"); // optional
+    const sp = req.nextUrl.searchParams;
 
-    const where: string[] = [];
-    const params: any[] = [];
+    // ----- Date range (default last 30 days)
+    const rawFrom = sp.get("entryDateFrom") ?? "";
+    const rawTo = sp.get("entryDateTo") ?? "";
 
-    if (entryDate) {
-      params.push(entryDate);
-      where.push(`s.entry_date = $${params.length}::date`);
+    const today = ymdChicago(new Date());
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    const defaultFrom = ymdChicago(d);
+
+    const entryDateFrom = rawFrom || defaultFrom;
+    const entryDateTo = rawTo || today;
+
+    if (!isValidDate(entryDateFrom) || !isValidDate(entryDateTo)) {
+      return NextResponse.json<Resp>({ error: "Invalid date range" }, { status: 400 });
     }
 
-    if (salesOrderParam) {
-      const so = Number(salesOrderParam);
-      if (Number.isFinite(so)) {
-        params.push(so);
-        where.push(`s.sales_order = $${params.length}::bigint`);
-      }
+    // ----- Paging
+    const limit = clampInt(sp.get("limit"), 25, 1, 200);
+    const offset = clampInt(sp.get("offset"), 0, 0, 1_000_000);
+
+    // ----- Sort
+    const sortByRaw = sp.get("sortBy") ?? "entryTs";
+    const sortBy = ALLOWED_SORT.has(sortByRaw) ? sortByRaw : "entryTs";
+    const sortDir = sp.get("sortDir") === "asc" ? "ASC" : "DESC";
+
+    // ----- Filters
+    const name = sp.get("name")?.trim();
+    const salesOrder = sp.get("salesOrder")?.trim();
+    const notes = sp.get("notes")?.trim();
+
+    const params: any[] = [entryDateFrom, entryDateTo];
+    let where = `s.entry_date BETWEEN $1::date AND $2::date`;
+
+    if (payload.role !== "ADMIN" && payload.employeeNumber) {
+      params.push(Number(payload.employeeNumber));
+      where += ` AND s.employee_number = $${params.length}`;
     }
 
-    if (mine) {
-      // Prefer employee_number if available; fallback to name
-      if (payload.employeeNumber) {
-        params.push(Number(payload.employeeNumber));
-        where.push(`s.employee_number = $${params.length}::int`);
-      } else {
-        params.push(payload.displayName ?? payload.username ?? "");
-        where.push(`s.name = $${params.length}::text`);
-      }
+    if (name) {
+      params.push(`%${name}%`);
+      where += ` AND s.name ILIKE $${params.length}`;
     }
 
-    const sql = `
+    if (salesOrder) {
+      params.push(`${salesOrder}%`);
+      where += ` AND COALESCE(s.sales_order::text,'') LIKE $${params.length}`;
+    }
+
+    if (notes) {
+      params.push(`%${notes}%`);
+      where += ` AND COALESCE(s.notes,'') ILIKE $${params.length}`;
+    }
+
+    const ORDER_MAP: Record<string, string> = {
+      entryTs: `b."entryTs"`,
+      entryDate: `b."entryDate"`,
+      name: `b."name"`,
+      salesOrder: `b."salesOrder"`,
+      lineCount: `b."lineCount"`,
+      totalPieces: `b."totalPieces"`,
+    };
+
+    const orderExpr = ORDER_MAP[sortBy] ?? ORDER_MAP.entryTs;
+    const orderBySql = `${orderExpr} ${sortDir}, b."id" DESC`;
+
+    params.push(limit);
+    const limitParam = `$${params.length}`;
+    params.push(offset);
+    const offsetParam = `$${params.length}`;
+
+    const { rows } = await db.query(
+      `
+      WITH base AS (
+        SELECT
+          s.id,
+          s.entry_ts AS "entryTs",
+          s.entry_date AS "entryDate",
+          s.sales_order::text AS "salesOrder",
+          s.name,
+          s.employee_number AS "employeeNumber",
+          s.notes,
+          COUNT(l.id)::int AS "lineCount",
+          COALESCE(SUM(l.pieces),0)::int AS "totalPieces"
+        FROM emblem_daily_submissions s
+        LEFT JOIN emblem_daily_submission_lines l
+          ON l.submission_id = s.id
+        WHERE ${where}
+        GROUP BY s.id
+      )
       SELECT
-        s.id,
+        b.*,
+        (SELECT COUNT(*) FROM base)::int AS "totalCount"
+      FROM base b
+      ORDER BY ${orderBySql}
+      LIMIT ${limitParam}
+      OFFSET ${offsetParam}
+      `,
+      params
+    );
 
-        -- ✅ Central Time display for list
-        to_char(
-          s.entry_ts AT TIME ZONE 'America/Chicago',
-          'YYYY-MM-DD HH24:MI:SS'
-        ) as entry_ts_display,
+    const totalCount = rows.length ? Number(rows[0].totalCount) : 0;
+    const clean = rows.map(({ totalCount: _tc, ...rest }: any) => rest);
 
-        s.sales_order::text as sales_order,
-        s.name,
-        s.employee_number,
-        s.notes,
-
-        COUNT(l.id)::int as line_count,
-        COALESCE(SUM(l.pieces), 0)::int as total_pieces
-
-      FROM emblem_daily_submissions s
-      LEFT JOIN emblem_daily_submission_lines l
-        ON l.submission_id = s.id
-
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-
-      GROUP BY s.id
-      ORDER BY s.entry_ts DESC
-      LIMIT 500
-    `;
-
-    const { rows } = await db.query(sql, params);
-    return NextResponse.json({ rows });
+    return NextResponse.json<Resp>(
+      { submissions: clean, totalCount, limit, offset },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("emblem-production-submission-list GET error:", err);
-    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
+    return NextResponse.json<Resp>({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
