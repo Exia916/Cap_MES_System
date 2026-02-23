@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 function centralTodayISODate(): string {
@@ -18,6 +18,32 @@ function centralTodayISODate(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ✅ remove commas helper
+function stripCommas(v: any) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return s.replace(/,/g, "");
+}
+
+function isSevenDigits(v: any) {
+  const s = stripCommas(v).trim();
+  return /^\d{7}$/.test(s);
+}
+
+function isWholeNumber(v: any) {
+  const s = stripCommas(v).trim();
+  return /^\d+$/.test(s);
+}
+
+type FieldErrors = {
+  salesOrder?: string;
+  leatherStyleColor?: string;
+  piecesCut?: string;
+};
+
+function hasErrors(e: FieldErrors) {
+  return !!(e.salesOrder || e.leatherStyleColor || e.piecesCut);
+}
+
 export default function LaserProductionForm({
   mode,
   id,
@@ -29,8 +55,13 @@ export default function LaserProductionForm({
 
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
+
+  // server/runtime errors only
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // field-level errors
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   // Hidden date (kept for DB)
   const [entryDate, setEntryDate] = useState(mode === "add" ? centralTodayISODate() : "");
@@ -43,7 +74,20 @@ export default function LaserProductionForm({
   const [styles, setStyles] = useState<string[]>([]);
   const [stylesLoading, setStylesLoading] = useState(false);
 
-  // Load dropdown options
+  // refs for auto-scroll/focus
+  const salesOrderRef = useRef<HTMLInputElement | null>(null);
+  const styleRef = useRef<HTMLSelectElement | null>(null);
+  const piecesRef = useRef<HTMLInputElement | null>(null);
+
+  // styling
+  const errTextClass = "mt-1 text-xs font-semibold text-red-700";
+  const inputBaseClass = "w-full rounded border p-2";
+  const inputErrorClass = "border-red-500 ring-2 ring-red-200";
+  function inputClass(hasErr?: boolean) {
+    return `${inputBaseClass} ${hasErr ? inputErrorClass : ""}`;
+  }
+
+  // Load dropdown options (KEEP SAME CALL)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -64,7 +108,7 @@ export default function LaserProductionForm({
     };
   }, []);
 
-  // Load edit record
+  // Load edit record (KEEP SAME CALL)
   useEffect(() => {
     if (mode !== "edit" || !id) return;
 
@@ -73,6 +117,7 @@ export default function LaserProductionForm({
         setLoading(true);
         setError(null);
         setSuccessMsg(null);
+        setFieldErrors({});
 
         const res = await fetch(`/api/laser-production-entry?id=${encodeURIComponent(id)}`, {
           cache: "no-store",
@@ -95,18 +140,41 @@ export default function LaserProductionForm({
     })();
   }, [mode, id]);
 
-  function validate() {
-    if (!salesOrder.trim()) return "Sales Order is required";
-    if (!leatherStyleColor.trim()) return "Leather Style/Color is required";
+  function validateClient(): FieldErrors {
+    const next: FieldErrors = {};
 
-    const so = Number(salesOrder);
-    if (!Number.isFinite(so)) return "Sales Order must be a number";
+    const so = stripCommas(salesOrder).trim();
+    if (!so) next.salesOrder = "Sales Order is required.";
+    else if (!isSevenDigits(so)) next.salesOrder = "Sales Order must be exactly 7 digits (numbers only).";
 
-    const pieces = Number(piecesCut);
-    if (!piecesCut.trim()) return "Pieces Cut is required";
-    if (!Number.isFinite(pieces) || pieces < 0) return "Pieces Cut must be a non-negative number";
+    if (!String(leatherStyleColor ?? "").trim()) {
+      next.leatherStyleColor = "Leather Style/Color is required.";
+    }
 
-    return null;
+    const pcs = stripCommas(piecesCut).trim();
+    if (!pcs) next.piecesCut = "Pieces Cut is required.";
+    else if (!isWholeNumber(pcs)) next.piecesCut = "Pieces Cut must be a whole number.";
+    else if (Number(pcs) < 0) next.piecesCut = "Pieces Cut cannot be negative.";
+
+    return next;
+  }
+
+  function scrollToFirstError(v: FieldErrors) {
+    if (v.salesOrder && salesOrderRef.current) {
+      salesOrderRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      salesOrderRef.current.focus();
+      return;
+    }
+    if (v.leatherStyleColor && styleRef.current) {
+      styleRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      styleRef.current.focus();
+      return;
+    }
+    if (v.piecesCut && piecesRef.current) {
+      piecesRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      piecesRef.current.focus();
+      return;
+    }
   }
 
   function resetForNewAdd() {
@@ -115,6 +183,7 @@ export default function LaserProductionForm({
     setLeatherStyleColor("");
     setPiecesCut("");
     setNotes("");
+    setFieldErrors({});
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -124,14 +193,21 @@ export default function LaserProductionForm({
     setSuccessMsg(null);
 
     try {
-      const v = validate();
-      if (v) throw new Error(v);
+      const v = validateClient();
+      setFieldErrors(v);
 
+      if (hasErrors(v) || !entryDate) {
+        if (!entryDate) setError("Entry Date is required.");
+        setTimeout(() => scrollToFirstError(v), 50);
+        return;
+      }
+
+      // KEEP SAME payload and endpoints
       const payload: any = {
         entryDate,
-        salesOrder,
+        salesOrder: stripCommas(salesOrder),
         leatherStyleColor,
-        piecesCut,
+        piecesCut: stripCommas(piecesCut),
         notes,
       };
 
@@ -182,23 +258,37 @@ export default function LaserProductionForm({
       {/* Entry Date hidden to match other modules */}
 
       <div>
-        <label className="block text-sm font-medium mb-1">Sales Order</label>
+        <label className="block text-sm font-medium mb-1">
+          Sales Order <span className="text-red-600">*</span>
+        </label>
         <input
-          className="w-full rounded border p-2"
+          ref={salesOrderRef}
+          className={inputClass(!!fieldErrors.salesOrder)}
           value={salesOrder}
-          onChange={(e) => setSalesOrder(e.target.value)}
+          onChange={(e) => {
+            setSalesOrder(stripCommas(e.target.value));
+            setFieldErrors((prev) => ({ ...prev, salesOrder: undefined }));
+          }}
           placeholder="7-digit SO"
-          required
+          inputMode="numeric"
+          readOnly={mode === "edit"} // match other modules
         />
+        {fieldErrors.salesOrder ? <div className={errTextClass}>{fieldErrors.salesOrder}</div> : null}
+        <div className="mt-1 text-xs opacity-70">Is required, and has to be a 7 digit number.</div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">Leather Style/Color</label>
+        <label className="block text-sm font-medium mb-1">
+          Leather Style/Color <span className="text-red-600">*</span>
+        </label>
         <select
-          className="w-full rounded border p-2"
+          ref={styleRef}
+          className={inputClass(!!fieldErrors.leatherStyleColor)}
           value={leatherStyleColor}
-          onChange={(e) => setLeatherStyleColor(e.target.value)}
-          required
+          onChange={(e) => {
+            setLeatherStyleColor(e.target.value);
+            setFieldErrors((prev) => ({ ...prev, leatherStyleColor: undefined }));
+          }}
         >
           <option value="">{stylesLoading ? "Loading..." : "Select Style/Color"}</option>
           {styles.map((s) => (
@@ -207,18 +297,27 @@ export default function LaserProductionForm({
             </option>
           ))}
         </select>
+        {fieldErrors.leatherStyleColor ? <div className={errTextClass}>{fieldErrors.leatherStyleColor}</div> : null}
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">Pieces Cut</label>
+        <label className="block text-sm font-medium mb-1">
+          Pieces Cut <span className="text-red-600">*</span>
+        </label>
         <input
-          type="number"
-          className="w-full rounded border p-2"
+          ref={piecesRef}
+          type="text"
+          className={inputClass(!!fieldErrors.piecesCut)}
           value={piecesCut}
-          onChange={(e) => setPiecesCut(e.target.value)}
-          min={0}
-          required
+          onChange={(e) => {
+            setPiecesCut(stripCommas(e.target.value));
+            setFieldErrors((prev) => ({ ...prev, piecesCut: undefined }));
+          }}
+          inputMode="numeric"
+          placeholder=""
         />
+        {fieldErrors.piecesCut ? <div className={errTextClass}>{fieldErrors.piecesCut}</div> : null}
+        <div className="mt-1 text-xs opacity-70">Is required, and should be a number only.</div>
       </div>
 
       <div>
@@ -232,12 +331,8 @@ export default function LaserProductionForm({
         />
       </div>
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded bg-black px-4 py-2 text-white disabled:opacity-60"
-      >
-        {saving ? "Saving..." : "Save"}
+      <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-60">
+        {saving ? "Saving..." : mode === "edit" ? "Update" : "Save"}
       </button>
     </form>
   );

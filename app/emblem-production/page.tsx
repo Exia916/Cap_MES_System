@@ -18,6 +18,23 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function fmtDateOnly(v: any): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  return ymdChicago(dt);
+}
+
+function stripCommas(v: any) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return s.replace(/,/g, "");
+}
+
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
@@ -74,9 +91,9 @@ type Row = {
 type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount" | "totalPieces";
 
 type Filters = {
-  salesOrder: string; // starts-with
-  name: string;       // contains
-  notes: string;      // contains
+  salesOrder: string;
+  name: string;
+  notes: string;
 };
 
 const DEFAULT_FILTERS: Filters = { salesOrder: "", name: "", notes: "" };
@@ -103,13 +120,11 @@ export default function EmblemProductionListPage() {
 
   const offset = pageIndex * pageSize;
 
-  // debounce typing
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedFilters(filters), 300);
     return () => window.clearTimeout(t);
   }, [filters]);
 
-  // reset paging on query changes
   useEffect(() => {
     setPageIndex(0);
   }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
@@ -175,8 +190,18 @@ export default function EmblemProductionListPage() {
     }
   }
 
+  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
+
+    // reset the date range back to default (Last 30)
+    setEntryDateFrom(def.from);
+    setEntryDateTo(def.to);
+
+    // optional but usually expected for "Clear All"
+    setSortBy("entryTs");
+    setSortDir("desc");
+    setPageIndex(0);
   }
 
   function applyRange(r: { from: string; to: string }) {
@@ -197,14 +222,49 @@ export default function EmblemProductionListPage() {
             <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
           </div>
         ),
-        render: (r) => r.entryDate ?? "",
+        render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
+        getSearchText: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
       },
-
-      { key: "salesOrder", header: "SO", sortable: true, filterable: true, placeholder: "SO (starts with)", render: (r) => r.salesOrder ?? "" },
-      { key: "name", header: "NAME", sortable: true, filterable: true, placeholder: "Name", render: (r) => r.name ?? "" },
-      { key: "lineCount", header: "LINES", sortable: true, render: (r) => r.lineCount ?? 0 },
-      { key: "totalPieces", header: "TOTAL PIECES", sortable: true, render: (r) => r.totalPieces ?? 0 },
-      { key: "notes", header: "NOTES", filterable: true, placeholder: "Notes", render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span> },
+      {
+        key: "salesOrder",
+        header: "SO",
+        sortable: true,
+        filterable: true,
+        placeholder: "SO (starts with)",
+        render: (r) => stripCommas(r.salesOrder ?? ""),
+        getSearchText: (r) => stripCommas(r.salesOrder ?? ""),
+      },
+      {
+        key: "name",
+        header: "NAME",
+        sortable: true,
+        filterable: true,
+        placeholder: "Name",
+        render: (r) => r.name ?? "",
+        getSearchText: (r) => r.name ?? "",
+      },
+      {
+        key: "lineCount",
+        header: "LINES",
+        sortable: true,
+        render: (r) => r.lineCount ?? 0,
+        getSearchText: (r) => String(r.lineCount ?? 0),
+      },
+      {
+        key: "totalPieces",
+        header: "TOTAL PIECES",
+        sortable: true,
+        render: (r) => r.totalPieces ?? 0,
+        getSearchText: (r) => String(r.totalPieces ?? 0),
+      },
+      {
+        key: "notes",
+        header: "NOTES",
+        filterable: true,
+        placeholder: "Notes",
+        render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
+        getSearchText: (r) => r.notes ?? "",
+      },
       { key: "edit", header: "", render: (r) => <Link href={`/emblem-production/${r.id}`}>Edit</Link> },
     ],
     [entryDateFrom, entryDateTo]
@@ -262,6 +322,16 @@ export default function EmblemProductionListPage() {
         toolbar={toolbar}
         rowKey={(r) => r.id}
         emptyText="No emblem submissions found."
+        globalSearchPlaceholder="Search current view… (SO, name, notes)"
+        csvFilename="emblem-production.csv"
+        rowToCsv={(r) => ({
+          "Entry Date": fmtDateOnly(r.entryDate ?? r.entryTs),
+          "SO": stripCommas(r.salesOrder ?? ""),
+          "Name": r.name ?? "",
+          "Lines": r.lineCount ?? 0,
+          "Total Pieces": r.totalPieces ?? 0,
+          "Notes": r.notes ?? "",
+        })}
       />
     </div>
   );

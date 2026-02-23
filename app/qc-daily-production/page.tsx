@@ -18,6 +18,23 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function fmtDateOnly(v: any): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  return ymdChicago(dt);
+}
+
+function stripCommas(v: any) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return s.replace(/,/g, "");
+}
+
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
@@ -75,9 +92,9 @@ type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount";
 
 type Filters = {
   name: string;
-  salesOrderNumber: string; // starts-with
-  detailNumber: string;     // starts-with (exists on any line)
-  notes: string;            // contains (submission or any line notes)
+  salesOrderNumber: string;
+  detailNumber: string;
+  notes: string;
 };
 
 const DEFAULT_FILTERS: Filters = {
@@ -113,7 +130,6 @@ export default function QCDailyProductionPage() {
     return () => window.clearTimeout(t);
   }, [filters]);
 
-  // reset paging on query change
   useEffect(() => {
     setPageIndex(0);
   }, [entryDateFrom, entryDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
@@ -179,8 +195,18 @@ export default function QCDailyProductionPage() {
     }
   }
 
+  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
+
+    // reset the date range back to default (Last 30)
+    setEntryDateFrom(def.from);
+    setEntryDateTo(def.to);
+
+    // optional but usually expected for "Clear All"
+    setSortBy("entryTs");
+    setSortDir("desc");
+    setPageIndex(0);
   }
 
   function applyRange(r: { from: string; to: string }) {
@@ -189,81 +215,67 @@ export default function QCDailyProductionPage() {
   }
 
   const columns: Column<QcSubmissionRow>[] = useMemo(
-  () => [
-    {
-      key: "entryDate",
-      header: "ENTRY DATE",
-      sortable: true,
-      filterRender: (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input
-            style={filterInput}
-            type="date"
-            value={entryDateFrom}
-            onChange={(e) => setEntryDateFrom(e.target.value)}
-          />
-          <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
-          <input
-            style={filterInput}
-            type="date"
-            value={entryDateTo}
-            onChange={(e) => setEntryDateTo(e.target.value)}
-          />
-        </div>
-      ),
-      render: (r) => r.entryDate ?? "",
-    },
+    () => [
+      {
+        key: "entryDate",
+        header: "ENTRY DATE",
+        sortable: true,
+        filterRender: (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input style={filterInput} type="date" value={entryDateFrom} onChange={(e) => setEntryDateFrom(e.target.value)} />
+            <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
+            <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
+          </div>
+        ),
+        render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
+        getSearchText: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
+      },
 
-    {
-      key: "name",
-      header: "NAME",
-      sortable: true,
-      filterable: true,
-      placeholder: "Name",
-      render: (r) => r.name ?? "",
-    },
+      {
+        key: "name",
+        header: "NAME",
+        sortable: true,
+        filterable: true,
+        placeholder: "Name",
+        render: (r) => r.name ?? "",
+        getSearchText: (r) => r.name ?? "",
+      },
 
-    {
-      key: "salesOrderNumber",
-      header: "SO",
-      sortable: true,
-      filterable: true,
-      placeholder: "SO (starts with)",
-      render: (r) => r.salesOrder ?? "",
-    },
+      {
+        key: "salesOrderNumber",
+        header: "SO",
+        sortable: true,
+        filterable: true,
+        placeholder: "SO (starts with)",
+        render: (r) => stripCommas(r.salesOrder ?? ""),
+        getSearchText: (r) => stripCommas(r.salesOrder ?? ""),
+      },
 
-    {
-      key: "lineCount",
-      header: "LINES",
-      sortable: true,
-      render: (r) => r.lineCount ?? 0,
-    },
+      {
+        key: "lineCount",
+        header: "LINES",
+        sortable: true,
+        render: (r) => r.lineCount ?? 0,
+        getSearchText: (r) => String(r.lineCount ?? 0),
+      },
 
-    {
-      key: "notes",
-      header: "NOTES",
-      filterable: true,
-      placeholder: "Notes (submission or line)",
-      render: (r) => (
-        <span style={{ whiteSpace: "normal" }}>
-          {r.notes ?? ""}
-        </span>
-      ),
-    },
+      {
+        key: "notes",
+        header: "NOTES",
+        filterable: true,
+        placeholder: "Notes (submission or line)",
+        render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
+        getSearchText: (r) => r.notes ?? "",
+      },
 
-    {
-      key: "edit",
-      header: "",
-      render: (r) => (
-        <Link href={`/qc-daily-production/${r.id}`}>
-          Edit
-        </Link>
-      ),
-    },
-  ],
-  [entryDateFrom, entryDateTo]
-);
-
+      {
+        key: "edit",
+        header: "",
+        render: (r) => <Link href={`/qc-daily-production/${r.id}`}>Edit</Link>,
+      },
+    ],
+    [entryDateFrom, entryDateTo]
+  );
 
   const toolbar = (
     <>
@@ -317,6 +329,16 @@ export default function QCDailyProductionPage() {
         toolbar={toolbar}
         rowKey={(r) => r.id}
         emptyText="No QC submissions found."
+        globalSearchPlaceholder="Search current view… (SO, name, notes)"
+        csvFilename="qc-daily-production.csv"
+        rowToCsv={(r) => ({
+          "Entry Date": fmtDateOnly(r.entryDate ?? r.entryTs),
+          "Name": r.name ?? "",
+          "Employee #": stripCommas(r.employeeNumber ?? ""),
+          "SO": stripCommas(r.salesOrder ?? ""),
+          "Lines": r.lineCount ?? 0,
+          "Notes": r.notes ?? "",
+        })}
       />
     </div>
   );

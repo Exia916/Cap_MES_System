@@ -18,6 +18,32 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ✅ Shift Date display helper: shows date only, never time
+function fmtShiftDateOnly(v: any): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  return ymdChicago(dt);
+}
+
+// ✅ remove commas helper (SO, employee #, etc.)
+function stripCommas(v: any) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return s.replace(/,/g, "");
+}
+
+// ✅ show blank for null/undefined (instead of 0)
+function fmtMaybeNumber(v: any): string {
+  if (v === null || v === undefined || v === "") return "";
+  const s = stripCommas(v);
+  return s;
+}
+
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
@@ -123,7 +149,6 @@ export default function DailyProductionPage() {
     return () => window.clearTimeout(t);
   }, [filters]);
 
-  // reset to first page when query changes
   useEffect(() => {
     setPageIndex(0);
   }, [shiftDateFrom, shiftDateTo, sortBy, sortDir, debouncedFilters, pageSize]);
@@ -185,14 +210,23 @@ export default function DailyProductionPage() {
   }
 
   function onFilterChange(key: string, value: string) {
-    // date range is handled separately by its own inputs
     if (key in DEFAULT_FILTERS) {
       setFilters((f) => ({ ...f, [key]: value }));
     }
   }
 
+  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
+
+    // reset the date range back to default (Last 30)
+    setShiftDateFrom(def.from);
+    setShiftDateTo(def.to);
+
+    // optional but usually expected for "Clear All"
+    setSortBy("entryTs");
+    setSortDir("desc");
+    setPageIndex(0);
   }
 
   function applyRange(r: { from: string; to: string }) {
@@ -225,16 +259,26 @@ export default function DailyProductionPage() {
             />
           </div>
         ),
-        render: (r) => r.shiftDate ?? "",
+        render: (r) => fmtShiftDateOnly(r.shiftDate),
+        getSearchText: (r) => fmtShiftDateOnly(r.shiftDate),
       },
-      { key: "name", header: "NAME", sortable: true, filterable: true, placeholder: "Name", render: (r) => r.name },
+      {
+        key: "name",
+        header: "NAME",
+        sortable: true,
+        filterable: true,
+        placeholder: "Name",
+        render: (r) => r.name ?? "",
+        getSearchText: (r) => r.name ?? "",
+      },
       {
         key: "machineNumber",
         header: "MACHINE",
         sortable: true,
         filterable: true,
         placeholder: "Machine (starts with)",
-        render: (r) => r.machineNumber ?? "",
+        render: (r) => fmtMaybeNumber(r.machineNumber),
+        getSearchText: (r) => fmtMaybeNumber(r.machineNumber),
       },
       {
         key: "salesOrder",
@@ -242,17 +286,37 @@ export default function DailyProductionPage() {
         sortable: true,
         filterable: true,
         placeholder: "Sales Order (starts with)",
-        render: (r) => r.salesOrder ?? "",
+        render: (r) => fmtMaybeNumber(r.salesOrder),
+        getSearchText: (r) => fmtMaybeNumber(r.salesOrder),
       },
-      { key: "lineCount", header: "LINES", sortable: true, render: (r) => r.lineCount },
-      { key: "totalStitches", header: "TOTAL STITCHES", sortable: true, render: (r) => r.totalStitches ?? "" },
-      { key: "totalPieces", header: "TOTAL PIECES", sortable: true, render: (r) => r.totalPieces ?? "" },
+      {
+        key: "lineCount",
+        header: "LINES",
+        sortable: true,
+        render: (r) => r.lineCount ?? 0,
+        getSearchText: (r) => String(r.lineCount ?? 0),
+      },
+      {
+        key: "totalStitches",
+        header: "TOTAL STITCHES",
+        sortable: true,
+        render: (r) => fmtMaybeNumber(r.totalStitches),
+        getSearchText: (r) => fmtMaybeNumber(r.totalStitches),
+      },
+      {
+        key: "totalPieces",
+        header: "TOTAL PIECES",
+        sortable: true,
+        render: (r) => fmtMaybeNumber(r.totalPieces),
+        getSearchText: (r) => fmtMaybeNumber(r.totalPieces),
+      },
       {
         key: "notes",
         header: "NOTES",
         filterable: true,
         placeholder: "Notes",
         render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
+        getSearchText: (r) => r.notes ?? "",
       },
       {
         key: "edit",
@@ -315,6 +379,18 @@ export default function DailyProductionPage() {
         toolbar={toolbar}
         rowKey={(r) => r.id}
         emptyText="No submissions found."
+        globalSearchPlaceholder="Search current view… (SO, machine, name, notes)"
+        csvFilename="daily-production.csv"
+        rowToCsv={(r) => ({
+          "Shift Date": fmtShiftDateOnly(r.shiftDate),
+          "Name": r.name ?? "",
+          "Machine": stripCommas(r.machineNumber ?? ""),
+          "SO": stripCommas(r.salesOrder ?? ""),
+          "Lines": r.lineCount ?? 0,
+          "Total Stitches": r.totalStitches ?? "",
+          "Total Pieces": r.totalPieces ?? "",
+          "Notes": r.notes ?? "",
+        })}
       />
 
       <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
@@ -334,7 +410,6 @@ const headerRow: React.CSSProperties = {
   alignItems: "center",
 };
 
-// local input style to match DataTable inputs
 const filterInput: React.CSSProperties = {
   width: "100%",
   fontSize: 12,

@@ -38,11 +38,19 @@ export default function WelcomeCard() {
   const role = (me?.role || "").toUpperCase();
   const username = (me?.username || "").toLowerCase();
 
-  // ✅ robust admin detection (role preferred, username fallback)
+  // ✅ robust role detection (role preferred, username fallback)
   const isAdmin = role === "ADMIN" || username === "admin";
+  const isManagerRole =
+    role === "ADMIN" || role === "SUPERVISOR" || role === "MANAGER" || username === "admin";
 
-  // Toggle these while you’re still building list pages
-  const showModuleLinks = false;
+  // Toggle these while you’re still building manager/all pages
+  const showManagerAllLinks = true; // ✅ Daily Production All is ready
+  const showModuleLinks = false; // existing module links (/daily-production etc) toggle
+
+  // Toggle these one-by-one as you build them
+  const enableQCDailyAll = true; // ✅ ready
+  const enableEmblemAll = true; // ✅ ready
+  const enableLaserAll = true; // ✅ ready
 
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
@@ -67,6 +75,7 @@ export default function WelcomeCard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Existing module pages (non-admin) */}
           {showModuleLinks ? (
             <>
               <Link className="pill" href="/daily-production">
@@ -84,6 +93,34 @@ export default function WelcomeCard() {
             </>
           ) : null}
 
+          {/* Manager/Admin “All” views */}
+          {showManagerAllLinks && isManagerRole ? (
+            <>
+              <Link className="pill" href="/admin/daily-production-all">
+                → Daily Production (All)
+              </Link>
+
+              {enableQCDailyAll ? (
+                <Link className="pill" href="/admin/qc-daily-production-all">
+                  → QC Daily (All)
+                </Link>
+              ) : null}
+
+              {enableEmblemAll ? (
+                <Link className="pill" href="/admin/emblem-production-all">
+                  → Emblem (All)
+                </Link>
+              ) : null}
+
+              {enableLaserAll ? (
+                <Link className="pill" href="/admin/laser-production-all">
+                  → Laser (All)
+                </Link>
+              ) : null}
+            </>
+          ) : null}
+
+          {/* Admin-only */}
           {isAdmin ? (
             <Link className="pill" href="/admin/users">
               → Admin Users

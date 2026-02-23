@@ -18,6 +18,19 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ✅ Display helper: show YYYY-MM-DD only (never time)
+function fmtDateOnly(v: any): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  return ymdChicago(dt);
+}
+
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
@@ -69,9 +82,19 @@ type Row = {
   leatherStyleColor: string | null;
   piecesCut: number | null;
   notes: string | null;
+
+  // ✅ client-only calculated field
+  totalPiecesPerDay?: number;
 };
 
-type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "leatherStyleColor" | "piecesCut";
+type SortBy =
+  | "entryTs"
+  | "entryDate"
+  | "name"
+  | "salesOrder"
+  | "leatherStyleColor"
+  | "piecesCut"
+  | "totalPiecesPerDay";
 
 type Filters = {
   name: string;
@@ -131,7 +154,8 @@ export default function LaserProductionListPage() {
 
     if (debouncedFilters.name.trim()) sp.set("name", debouncedFilters.name.trim());
     if (debouncedFilters.salesOrder.trim()) sp.set("salesOrder", debouncedFilters.salesOrder.trim());
-    if (debouncedFilters.leatherStyleColor.trim()) sp.set("leatherStyleColor", debouncedFilters.leatherStyleColor.trim());
+    if (debouncedFilters.leatherStyleColor.trim())
+      sp.set("leatherStyleColor", debouncedFilters.leatherStyleColor.trim());
     if (debouncedFilters.notes.trim()) sp.set("notes", debouncedFilters.notes.trim());
 
     return sp.toString();
@@ -149,7 +173,22 @@ export default function LaserProductionListPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load laser entries.");
 
-      setRows(Array.isArray(data?.entries) ? data.entries : []);
+      const rawRows: Row[] = Array.isArray(data?.entries) ? data.entries : [];
+
+      // ✅ compute Total Pieces Per Day per entryDate (within currently loaded rows)
+      const totalsByDate = new Map<string, number>();
+      for (const r of rawRows) {
+        const key = fmtDateOnly(r.entryDate ?? r.entryTs);
+        const pcs = Number(r.piecesCut ?? 0) || 0;
+        totalsByDate.set(key, (totalsByDate.get(key) ?? 0) + pcs);
+      }
+
+      const withTotals = rawRows.map((r) => {
+        const key = fmtDateOnly(r.entryDate ?? r.entryTs);
+        return { ...r, totalPiecesPerDay: totalsByDate.get(key) ?? 0 };
+      });
+
+      setRows(withTotals);
       setTotalCount(Number.isFinite(data?.totalCount) ? Number(data.totalCount) : 0);
     } catch (e: any) {
       setError(e?.message || "Unknown error");
@@ -180,8 +219,18 @@ export default function LaserProductionListPage() {
     }
   }
 
+  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
+
+    // reset the date range back to default (Last 30)
+    setEntryDateFrom(def.from);
+    setEntryDateTo(def.to);
+
+    // optional but usually expected for "Clear All"
+    setSortBy("entryTs");
+    setSortDir("desc");
+    setPageIndex(0);
   }
 
   function applyRange(r: { from: string; to: string }) {
@@ -197,16 +246,40 @@ export default function LaserProductionListPage() {
         sortable: true,
         filterRender: (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input style={filterInput} type="date" value={entryDateFrom} onChange={(e) => setEntryDateFrom(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateFrom}
+              onChange={(e) => setEntryDateFrom(e.target.value)}
+            />
             <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
-            <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateTo}
+              onChange={(e) => setEntryDateTo(e.target.value)}
+            />
           </div>
         ),
-        render: (r) => r.entryDate ?? "",
+        render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
       },
 
-      { key: "name", header: "NAME", sortable: true, filterable: true, placeholder: "Name", render: (r) => r.name ?? "" },
-      { key: "salesOrder", header: "SO", sortable: true, filterable: true, placeholder: "SO (starts with)", render: (r) => r.salesOrder ?? "" },
+      {
+        key: "name",
+        header: "NAME",
+        sortable: true,
+        filterable: true,
+        placeholder: "Name",
+        render: (r) => r.name ?? "",
+      },
+      {
+        key: "salesOrder",
+        header: "SO",
+        sortable: true,
+        filterable: true,
+        placeholder: "SO (starts with)",
+        render: (r) => r.salesOrder ?? "",
+      },
       {
         key: "leatherStyleColor",
         header: "LEATHER STYLE/COLOR",
@@ -216,7 +289,21 @@ export default function LaserProductionListPage() {
         render: (r) => r.leatherStyleColor ?? "",
       },
       { key: "piecesCut", header: "PIECES CUT", sortable: true, render: (r) => r.piecesCut ?? 0 },
-      { key: "notes", header: "NOTES", filterable: true, placeholder: "Notes", render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span> },
+
+      {
+        key: "totalPiecesPerDay",
+        header: "TOTAL PIECES PER DAY",
+        sortable: true,
+        render: (r) => r.totalPiecesPerDay ?? 0,
+      },
+
+      {
+        key: "notes",
+        header: "NOTES",
+        filterable: true,
+        placeholder: "Notes",
+        render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
+      },
       { key: "edit", header: "", render: (r) => <Link href={`/laser-production/${r.id}`}>Edit</Link> },
     ],
     [entryDateFrom, entryDateTo]

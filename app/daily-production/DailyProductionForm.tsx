@@ -1,18 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 type LocationOption = { value: string; label: string };
 type MachineOption = { value: string; label: string };
-
-type SubmissionOption = {
-  id: string;
-  entryTs: string;
-  machineNumber: number | null;
-  notes: string | null;
-  lineCount?: number;
-};
 
 type Line = {
   detailNumber: string;
@@ -38,27 +30,42 @@ function blankLine(): Line {
   };
 }
 
-const MACHINE_STORAGE_KEY = "capmes.dailyProduction.machineNumber";
+type DailyProductionFormProps = {
+  initialSubmissionId?: string;
+};
 
-function isIntString(s: string) {
-  const t = s.trim();
-  if (!t) return false;
-  const n = Number(t);
+type LineFieldErrors = {
+  detailNumber?: string;
+  embroideryLocation?: string;
+  stitches?: string;
+  pieces?: string;
+};
+
+type FormErrors = {
+  salesOrder?: string;
+  lines?: LineFieldErrors[];
+};
+
+function hasErrors(e: FormErrors) {
+  if (e.salesOrder) return true;
+  if (e.lines && e.lines.some((x) => Object.keys(x).length > 0)) return true;
+  return false;
+}
+
+function isWholeNumberString(v: string) {
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  if (!/^\d+$/.test(s)) return false;
+  const n = Number(s);
   return Number.isFinite(n) && Number.isInteger(n);
 }
 
-function formatSubmissionLabel(s: SubmissionOption) {
-  const dt = new Date(s.entryTs);
-  const dtStr = Number.isNaN(dt.getTime()) ? s.entryTs : dt.toLocaleString();
-  const machine = s.machineNumber != null ? ` | M${s.machineNumber}` : "";
-  const count = s.lineCount != null ? ` | ${s.lineCount} line(s)` : "";
-  return `${dtStr}${machine}${count}`;
+function isSevenDigitSalesOrder(v: string) {
+  const s = String(v ?? "").trim();
+  return /^\d{7}$/.test(s);
 }
 
-type DailyProductionFormProps = {
-  /** If provided (e.g. /daily-production/[id]), auto-load this submission */
-  initialSubmissionId?: string;
-};
+const MACHINE_STORAGE_KEY = "capmes.dailyProduction.machineNumber";
 
 export default function DailyProductionForm({ initialSubmissionId }: DailyProductionFormProps) {
   const router = useRouter();
@@ -67,24 +74,39 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
   const [salesOrder, setSalesOrder] = useState("");
   const [machineNumber, setMachineNumber] = useState("");
   const [headerNotes, setHeaderNotes] = useState("");
-
   const [lines, setLines] = useState<Line[]>([blankLine()]);
 
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [machineOptions, setMachineOptions] = useState<MachineOption[]>([]);
 
-  // Submission dropdown
-  const [submissions, setSubmissions] = useState<SubmissionOption[]>([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-
-  // ✅ Support initialSubmissionId (edit page)
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string>(initialSubmissionId ?? "");
 
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // ✅ only for REAL server/runtime errors (not validation)
+  const [serverError, setServerError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // ✅ field-level validation errors
+  const [errors, setErrors] = useState<FormErrors>({});
+
   const canRemove = useMemo(() => lines.length > 1, [lines.length]);
+
+  // --- Refs for auto-scroll/focus ---
+  const salesOrderRef = useRef<HTMLInputElement | null>(null);
+  const detailRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const locRefs = useRef<(HTMLSelectElement | null)[]>([]);
+  const stitchesRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const piecesRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Styling (simple + consistent with your current look)
+  const errTextClass = "mt-1 text-xs font-semibold text-red-700";
+  const inputBaseClass = "mt-1 w-full rounded border px-3 py-2";
+  const inputErrorClass = "border-red-500 ring-2 ring-red-200";
+
+  function inputClass(hasErr?: boolean) {
+    return `${inputBaseClass} ${hasErr ? inputErrorClass : ""}`;
+  }
 
   // Load saved machine
   useEffect(() => {
@@ -114,17 +136,16 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
         if (!res.ok) return;
         const data = await res.json();
 
-        const opts: LocationOption[] =
-          Array.isArray(data)
-            ? data
-            : Array.isArray(data?.options)
-              ? data.options
-              : Array.isArray(data?.locations)
-                ? data.locations.map((l: any) => ({
-                    value: String(l.value ?? l.id ?? l.name),
-                    label: String(l.label ?? l.name ?? l.value ?? l.id),
-                  }))
-                : [];
+        const opts: LocationOption[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.options)
+            ? data.options
+            : Array.isArray(data?.locations)
+              ? data.locations.map((l: any) => ({
+                  value: String(l.value ?? l.id ?? l.name),
+                  label: String(l.label ?? l.name ?? l.value ?? l.id),
+                }))
+              : [];
 
         setLocationOptions(opts);
       } catch {
@@ -141,17 +162,16 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
         if (!res.ok) return;
         const data = await res.json();
 
-        const opts: MachineOption[] =
-          Array.isArray(data)
-            ? data
-            : Array.isArray(data?.options)
-              ? data.options
-              : Array.isArray(data?.machines)
-                ? data.machines.map((m: any) => ({
-                    value: String(m.value ?? m.machineNumber ?? m.id ?? m.name),
-                    label: String(m.label ?? m.machineName ?? m.name ?? m.machineNumber ?? m.value ?? m.id),
-                  }))
-                : [];
+        const opts: MachineOption[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.options)
+            ? data.options
+            : Array.isArray(data?.machines)
+              ? data.machines.map((m: any) => ({
+                  value: String(m.value ?? m.machineNumber ?? m.id ?? m.name),
+                  label: String(m.label ?? m.machineName ?? m.name ?? m.machineNumber ?? m.value ?? m.id),
+                }))
+              : [];
 
         setMachineOptions(opts);
       } catch {
@@ -166,27 +186,116 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
 
   function addLine() {
     setLines((prev) => [...prev, blankLine()]);
+    setErrors((prev) => ({
+      ...prev,
+      lines: prev.lines ? [...prev.lines, {}] : prev.lines,
+    }));
   }
 
   function removeLine(index: number) {
     setLines((prev) => prev.filter((_, i) => i !== index));
+    setErrors((prev) => {
+      if (!prev.lines) return prev;
+      return { ...prev, lines: prev.lines.filter((_, i) => i !== index) };
+    });
+
+    // keep refs aligned
+    detailRefs.current.splice(index, 1);
+    locRefs.current.splice(index, 1);
+    stitchesRefs.current.splice(index, 1);
+    piecesRefs.current.splice(index, 1);
   }
 
-  function validateClient(): string | null {
-    if (!salesOrder.trim()) return "Sales Order is required.";
+  function validateClient(): FormErrors {
+    const next: FormErrors = {};
 
-    for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
-      if (!l.detailNumber.trim()) return `Line ${i + 1}: Detail # is required.`;
-      if (!l.embroideryLocation.trim()) return `Line ${i + 1}: Location is required.`;
+    // ✅ Sales Order must be exactly 7 digits (clear, specific message)
+    if (!salesOrder.trim()) {
+      next.salesOrder = "Sales Order is required.";
+    } else if (!isSevenDigitSalesOrder(salesOrder)) {
+      next.salesOrder = "Sales Order must be exactly 7 digits (numbers only).";
     }
-    return null;
+
+    const lineErrors: LineFieldErrors[] = lines.map((l) => {
+      const le: LineFieldErrors = {};
+
+      // ✅ Detail Number must be a whole number
+      if (!String(l.detailNumber ?? "").trim()) le.detailNumber = "Detail # is required.";
+      else if (!isWholeNumberString(l.detailNumber)) le.detailNumber = "Detail # must be a whole number.";
+
+      if (!l.embroideryLocation.trim()) le.embroideryLocation = "Location is required.";
+
+      if (!String(l.stitches ?? "").trim()) le.stitches = "Stitches is required.";
+      else if (!isWholeNumberString(l.stitches)) le.stitches = "Stitches must be a whole number.";
+
+      if (!String(l.pieces ?? "").trim()) le.pieces = "Pieces is required.";
+      else if (!isWholeNumberString(l.pieces)) le.pieces = "Pieces must be a whole number.";
+
+      return le;
+    });
+
+    if (lineErrors.some((le) => Object.keys(le).length > 0)) next.lines = lineErrors;
+
+    return next;
   }
 
-  // ✅ Load a submission (used both by dropdown selection and initialSubmissionId)
+  function clearSalesOrderError() {
+    setErrors((prev) => ({ ...prev, salesOrder: undefined }));
+  }
+
+  function clearLineFieldError(index: number, field: keyof LineFieldErrors) {
+    setErrors((prev) => {
+      if (!prev.lines) return prev;
+      const nextLines = [...prev.lines];
+      const cur = nextLines[index] ?? {};
+      nextLines[index] = { ...cur, [field]: undefined };
+      return { ...prev, lines: nextLines };
+    });
+  }
+
+  // ✅ Auto-scroll to first invalid field
+  function scrollToFirstError(v: FormErrors) {
+    // priority: Sales Order → first line with error in order: detail → location → stitches → pieces
+    if (v.salesOrder && salesOrderRef.current) {
+      salesOrderRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      salesOrderRef.current.focus();
+      return;
+    }
+
+    if (v.lines) {
+      for (let i = 0; i < v.lines.length; i++) {
+        const le = v.lines[i];
+        if (!le) continue;
+
+        if (le.detailNumber && detailRefs.current[i]) {
+          detailRefs.current[i]!.scrollIntoView({ behavior: "smooth", block: "center" });
+          detailRefs.current[i]!.focus();
+          return;
+        }
+        if (le.embroideryLocation && locRefs.current[i]) {
+          locRefs.current[i]!.scrollIntoView({ behavior: "smooth", block: "center" });
+          locRefs.current[i]!.focus();
+          return;
+        }
+        if (le.stitches && stitchesRefs.current[i]) {
+          stitchesRefs.current[i]!.scrollIntoView({ behavior: "smooth", block: "center" });
+          stitchesRefs.current[i]!.focus();
+          return;
+        }
+        if (le.pieces && piecesRefs.current[i]) {
+          piecesRefs.current[i]!.scrollIntoView({ behavior: "smooth", block: "center" });
+          piecesRefs.current[i]!.focus();
+          return;
+        }
+      }
+    }
+  }
+
+  // ✅ Load submission for edit
   async function loadSubmission(submissionId: string) {
-    setError(null);
+    setServerError(null);
     setSuccessMsg(null);
+    setErrors({});
 
     const res = await fetch(`/api/daily-production-submission?id=${encodeURIComponent(submissionId)}`, {
       cache: "no-store",
@@ -198,9 +307,7 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
     const submission = data?.submission;
     const loadedLines = Array.isArray(data?.lines) ? data.lines : [];
 
-    // Ensure Sales Order is populated (so user sees it / submission list works)
     if (submission?.salesOrder != null) setSalesOrder(String(submission.salesOrder));
-
     setHeaderNotes(submission?.notes ?? "");
     if (submission?.machineNumber != null) setMachineNumber(String(submission.machineNumber));
 
@@ -220,77 +327,33 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
     );
   }
 
-
-  // Load submissions for Sales Order (debounced)
   useEffect(() => {
-    setSubmissions([]);
+    if (!initialSubmissionId) return;
 
-    // ✅ Do NOT wipe selected submission if we're on the edit page
-    if (!initialSubmissionId) setSelectedSubmissionId("");
+    setSelectedSubmissionId(initialSubmissionId);
 
-    const so = salesOrder.trim();
-    if (!isIntString(so)) return;
-
-    const handle = setTimeout(async () => {
-      setLoadingSubmissions(true);
+    (async () => {
       try {
-        const res = await fetch(`/api/daily-production-submissions?salesOrder=${encodeURIComponent(so)}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          setSubmissions([]);
-          return;
-        }
-        const data = await res.json();
-        const list = Array.isArray(data?.submissions) ? data.submissions : [];
-        setSubmissions(
-          list.map((s: any) => ({
-            id: String(s.id),
-            entryTs: String(s.entryTs),
-            machineNumber: s.machineNumber == null ? null : Number(s.machineNumber),
-            notes: s.notes == null ? null : String(s.notes),
-            lineCount: s.lineCount == null ? undefined : Number(s.lineCount),
-          }))
-        );
-      } catch {
-        setSubmissions([]);
-      } finally {
-        setLoadingSubmissions(false);
+        await loadSubmission(initialSubmissionId);
+      } catch (err: any) {
+        setServerError(err?.message ?? "Failed to load submission.");
       }
-    }, 350);
-
-    return () => clearTimeout(handle);
-  }, [salesOrder, initialSubmissionId]);
-
-  // When user selects submission from dropdown, load it
- useEffect(() => {
-  if (!initialSubmissionId) return;
-
-  // force selection (so button label becomes "Update Submission", etc.)
-  setSelectedSubmissionId(initialSubmissionId);
-
-  // force-load data for the edit route
-  (async () => {
-    try {
-      await loadSubmission(initialSubmissionId);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to load submission.");
-    }
-  })();
-
-  // run when route id changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [initialSubmissionId]);
-
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSubmissionId]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setServerError(null);
     setSuccessMsg(null);
 
-    const msg = validateClient();
-    if (msg) {
-      setError(msg);
+    // ✅ Client validation first (prevents bottom server errors)
+    const v = validateClient();
+    setErrors(v);
+
+    if (hasErrors(v)) {
+      // wait a tick so UI shows errors before scrolling
+      setTimeout(() => scrollToFirstError(v), 50);
       return;
     }
 
@@ -326,35 +389,31 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
       });
 
       const data = await res.json();
+
       if (!res.ok) {
-        setError(data?.error ?? "Failed to save.");
+        // ✅ keep server errors here ONLY (rare now that we validate)
+        setServerError(data?.error ?? "Failed to save.");
         return;
       }
 
-      setSuccessMsg(
-        isUpdate ? `Updated ${data?.count ?? lines.length} line(s).` : `Saved ${data?.count ?? lines.length} line(s).`
-      );
+      setSuccessMsg(isUpdate ? "Updated submission." : "Saved submission.");
 
-      // After save, clear lines + notes; keep SO + machine for quick entry
+      // After save: clear lines + notes; keep SO + machine for fast entry
       setHeaderNotes("");
       setLines([blankLine()]);
+      setErrors({});
 
-      // If it was an update, keep selection (so user can continue editing) OR clear:
-      // Clearing makes it behave like "new entry"; keeping makes it behave like "edit mode".
-      // We'll clear unless we're explicitly on /daily-production/[id]
-      const editingByRoute = pathname?.startsWith("/daily-production/") && !pathname.startsWith("/daily-production/add");
-      if (!editingByRoute) setSelectedSubmissionId("");
+      const editingByRoute =
+        pathname?.startsWith("/daily-production/") && !pathname.startsWith("/daily-production/add");
 
-      // Refresh submissions list (salesOrder unchanged; force refresh by re-setting)
-      setSalesOrder((v) => v);
-
-      // If we saved from the edit route, go back to add page (optional)
-      // Comment this out if you want to stay on edit page.
+      // If saved from edit page, return to add page (your current behavior)
       if (editingByRoute) {
         router.push("/daily-production/add");
+      } else {
+        setSelectedSubmissionId("");
       }
     } catch (err: any) {
-      setError(err?.message ?? "Unexpected error.");
+      setServerError(err?.message ?? "Unexpected error.");
     } finally {
       setSaving(false);
     }
@@ -365,16 +424,22 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
       <div className="rounded border p-4 space-y-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="block text-sm font-medium">Sales Order</label>
+            <label className="block text-sm font-medium">
+              Sales Order <span className="text-red-600">*</span>
+            </label>
             <input
+              ref={salesOrderRef}
               value={salesOrder}
-              onChange={(e) => setSalesOrder(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2"
-              placeholder="123456"
+              onChange={(e) => {
+                setSalesOrder(e.target.value);
+                clearSalesOrderError();
+              }}
+              className={inputClass(!!errors.salesOrder)}
+              placeholder="1234567"
+              inputMode="numeric"
             />
-            <div className="mt-1 text-xs opacity-70">
-              Enter a Sales Order to load prior submissions (new saves only).
-            </div>
+            {errors.salesOrder ? <div className={errTextClass}>{errors.salesOrder}</div> : null}
+            <div className="mt-1 text-xs opacity-70">Sales Orders are 7 digits.</div>
           </div>
 
           <div>
@@ -383,7 +448,7 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
               <select
                 value={machineNumber}
                 onChange={(e) => setMachineNumber(e.target.value)}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className={inputClass(false)}
               >
                 <option value="">Select…</option>
                 {machineOptions.map((m) => (
@@ -396,7 +461,7 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
               <input
                 value={machineNumber}
                 onChange={(e) => setMachineNumber(e.target.value)}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className={inputClass(false)}
                 placeholder="Optional"
               />
             )}
@@ -407,38 +472,10 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
             <input
               value={headerNotes}
               onChange={(e) => setHeaderNotes(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2"
+              className={inputClass(false)}
               placeholder="Optional notes that apply to the whole submission"
             />
           </div>
-
-          {/* <div className="md:col-span-3">
-            <label className="block text-sm font-medium">Load Previous Submission (optional)</label>
-            <select
-              value={selectedSubmissionId}
-              onChange={(e) => setSelectedSubmissionId(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2"
-              disabled={loadingSubmissions || submissions.length === 0}
-            >
-              <option value="">
-                {loadingSubmissions
-                  ? "Loading…"
-                  : submissions.length > 0
-                    ? "Select a submission…"
-                    : "No submissions found (new saves only)."}
-              </option>
-              {submissions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {formatSubmissionLabel(s)}
-                </option>
-              ))}
-            </select>
-            {selectedSubmissionId && (
-              <div className="mt-1 text-xs opacity-70">
-                Loaded submission — saving will UPDATE it (PUT).
-              </div>
-            )}
-          </div> */}
         </div>
       </div>
 
@@ -451,120 +488,169 @@ export default function DailyProductionForm({ initialSubmissionId }: DailyProduc
         </div>
 
         <div className="mt-4 space-y-4">
-          {lines.map((line, idx) => (
-            <div key={idx} className="rounded border p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-semibold">Line {idx + 1}</div>
-                <button
-                  type="button"
-                  onClick={() => removeLine(idx)}
-                  disabled={!canRemove}
-                  className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="md:col-span-1">
-                  <label className="block text-sm font-medium">Detail #</label>
-                  <input
-                    value={line.detailNumber}
-                    onChange={(e) => updateLine(idx, { detailNumber: e.target.value })}
-                    className="mt-1 w-full rounded border px-3 py-2"
-                    placeholder="10"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium">Location</label>
-                  <select
-                    value={line.embroideryLocation}
-                    onChange={(e) => updateLine(idx, { embroideryLocation: e.target.value })}
-                    className="mt-1 w-full rounded border px-3 py-2"
+          {lines.map((line, idx) => {
+            const le = errors.lines?.[idx] ?? {};
+            return (
+              <div key={idx} className="rounded border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold">Line {idx + 1}</div>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(idx)}
+                    disabled={!canRemove}
+                    className="rounded border px-3 py-1 text-sm disabled:opacity-50"
                   >
-                    <option value="">Select…</option>
-                    {locationOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    Remove
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium">Stitches</label>
-                  <input
-                    value={line.stitches}
-                    onChange={(e) => updateLine(idx, { stitches: e.target.value })}
-                    className="mt-1 w-full rounded border px-3 py-2"
-                    placeholder="3200"
-                    inputMode="numeric"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium">Pieces</label>
-                  <input
-                    value={line.pieces}
-                    onChange={(e) => updateLine(idx, { pieces: e.target.value })}
-                    className="mt-1 w-full rounded border px-3 py-2"
-                    placeholder="12"
-                    inputMode="numeric"
-                  />
-                </div>
-
-                <div className="flex items-end gap-4 md:col-span-6">
-                  <label className="flex items-center gap-2">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium">
+                      Detail # <span className="text-red-600">*</span>
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={line.is3d}
-                      onChange={(e) => updateLine(idx, { is3d: e.target.checked })}
+                      ref={(el) => {
+                        detailRefs.current[idx] = el;
+                      }}
+                      value={line.detailNumber}
+                      onChange={(e) => {
+                        updateLine(idx, { detailNumber: e.target.value });
+                        clearLineFieldError(idx, "detailNumber");
+                      }}
+                      className={inputClass(!!le.detailNumber)}
+                      placeholder="1"
+                      inputMode="numeric"
                     />
-                    <span className="text-sm">3D</span>
-                  </label>
+                    {le.detailNumber ? <div className={errTextClass}>{le.detailNumber}</div> : null}
+                  </div>
 
-                  <label className="flex items-center gap-2">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium">
+                      Location <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      ref={(el) => {
+                        locRefs.current[idx] = el;
+                      }}
+                      value={line.embroideryLocation}
+                      onChange={(e) => {
+                        updateLine(idx, { embroideryLocation: e.target.value });
+                        clearLineFieldError(idx, "embroideryLocation");
+                      }}
+                      className={inputClass(!!le.embroideryLocation)}
+                    >
+                      <option value="">Select…</option>
+                      {locationOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {le.embroideryLocation ? <div className={errTextClass}>{le.embroideryLocation}</div> : null}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium">
+                      Stitches <span className="text-red-600">*</span>
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={line.isKnit}
-                      onChange={(e) => updateLine(idx, { isKnit: e.target.checked })}
+                      ref={(el) => {
+                        stitchesRefs.current[idx] = el;
+                      }}
+                      value={line.stitches}
+                      onChange={(e) => {
+                        updateLine(idx, { stitches: e.target.value });
+                        clearLineFieldError(idx, "stitches");
+                      }}
+                      className={inputClass(!!le.stitches)}
+                      placeholder="3200"
+                      inputMode="numeric"
                     />
-                    <span className="text-sm">Knit</span>
-                  </label>
+                    {le.stitches ? <div className={errTextClass}>{le.stitches}</div> : null}
+                  </div>
 
-                  <label className="flex items-center gap-2">
+                  <div>
+                    <label className="block text-sm font-medium">
+                      Pieces <span className="text-red-600">*</span>
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={line.detailComplete}
-                      onChange={(e) => updateLine(idx, { detailComplete: e.target.checked })}
+                      ref={(el) => {
+                        piecesRefs.current[idx] = el;
+                      }}
+                      value={line.pieces}
+                      onChange={(e) => {
+                        updateLine(idx, { pieces: e.target.value });
+                        clearLineFieldError(idx, "pieces");
+                      }}
+                      className={inputClass(!!le.pieces)}
+                      placeholder="100"
+                      inputMode="numeric"
                     />
-                    <span className="text-sm">Complete</span>
-                  </label>
-                </div>
+                    {le.pieces ? <div className={errTextClass}>{le.pieces}</div> : null}
+                  </div>
 
-                <div className="md:col-span-6">
-                  <label className="block text-sm font-medium">Line Notes</label>
-                  <input
-                    value={line.notes}
-                    onChange={(e) => updateLine(idx, { notes: e.target.value })}
-                    className="mt-1 w-full rounded border px-3 py-2 w-full"
-                    placeholder="Optional"
-                  />
+                  <div className="flex items-end gap-4 md:col-span-6">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={line.is3d}
+                        onChange={(e) => updateLine(idx, { is3d: e.target.checked })}
+                      />
+                      <span className="text-sm">3D</span>
+                    </label>
+
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={line.isKnit}
+                        onChange={(e) => updateLine(idx, { isKnit: e.target.checked })}
+                      />
+                      <span className="text-sm">Knit</span>
+                    </label>
+
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={line.detailComplete}
+                        onChange={(e) => updateLine(idx, { detailComplete: e.target.checked })}
+                      />
+                      <span className="text-sm">Complete</span>
+                    </label>
+                  </div>
+
+                  <div className="md:col-span-6">
+                    <label className="block text-sm font-medium">Line Notes</label>
+                    <input
+                      value={line.notes}
+                      onChange={(e) => updateLine(idx, { notes: e.target.value })}
+                      className={inputClass(false)}
+                      placeholder="Optional"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {error && <div className="rounded border border-red-300 p-3 text-sm">{error}</div>}
-      {successMsg && <div className="rounded border border-green-300 p-3 text-sm">{successMsg}</div>}
+      {/* ✅ Server errors ONLY (should be rare now) */}
+      {serverError && (
+        <div className="rounded border border-red-300 p-3 text-sm">
+          {serverError}
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="rounded border border-green-300 p-3 text-sm">
+          {successMsg}
+        </div>
+      )}
 
       <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-50">
-        {saving ? "Saving..." : selectedSubmissionId ? "Update Submission" : "Save"}
+        {saving ? "Saving..." : selectedSubmissionId ? "Update" : "Save"}
       </button>
     </form>
   );
 }
-
