@@ -10,7 +10,7 @@ type Totals = {
 
 type Row = {
   id: string;
-  shift_date: string;      
+  shift_date: string;
   entry_ts: string;
   name: string;
   machine_number: number;
@@ -175,6 +175,9 @@ export default function DailyProductionAllTable({
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
 
+  // ✅ NEW: global search
+  const [q, setQ] = useState("");
+
   const [name, setName] = useState("");
   const [machineNumber, setMachineNumber] = useState("");
   const [salesOrder, setSalesOrder] = useState("");
@@ -212,6 +215,9 @@ export default function DailyProductionAllTable({
       if (end) p.set("end", end);
     }
 
+    // ✅ NEW: global search query param
+    if (q) p.set("q", q);
+
     if (name) p.set("name", name);
     if (machineNumber) p.set("machine_number", machineNumber);
     if (salesOrder) p.set("sales_order", salesOrder);
@@ -236,6 +242,7 @@ export default function DailyProductionAllTable({
     showAll,
     start,
     end,
+    q, // ✅ NEW
     name,
     machineNumber,
     salesOrder,
@@ -286,6 +293,7 @@ export default function DailyProductionAllTable({
     showAll,
     start,
     end,
+    q, // ✅ NEW
     name,
     machineNumber,
     salesOrder,
@@ -435,6 +443,25 @@ export default function DailyProductionAllTable({
           </div>
         ) : null}
 
+        {/* ✅ NEW: Global Search */}
+        <div style={controlBox}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={label}>Search</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search: name, SO, detail, location, notes, emp#, shift…"
+              style={{ ...input, width: 340 }}
+            />
+          </div>
+
+          {q ? (
+            <button type="button" style={btn("ghost")} onClick={() => setQ("")} disabled={loading} title="Clear search">
+              Clear
+            </button>
+          ) : null}
+        </div>
+
         <div style={{ ...controlBox, marginLeft: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={label}>Page Size</span>
@@ -453,11 +480,7 @@ export default function DailyProductionAllTable({
             </select>
           </div>
 
-          <button
-            style={btn("ghost")}
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
+          <button style={btn("ghost")} disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
             Prev
           </button>
 
@@ -525,12 +548,8 @@ export default function DailyProductionAllTable({
               <SortHeader label="Stitches" sortKey="stitches" activeSort={sort} activeDir={dir} onChange={toggleSort} />
               <SortHeader label="Pieces" sortKey="pieces" activeSort={sort} activeDir={dir} onChange={toggleSort} />
 
-              <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>
-                3D
-              </th>
-              <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>
-                Knit
-              </th>
+              <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>3D</th>
+              <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>Knit</th>
               <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>
                 Detail Complete
               </th>
@@ -615,11 +634,7 @@ export default function DailyProductionAllTable({
               </th>
 
               <th style={{ padding: 6, borderBottom: "1px solid #ddd", background: "#fff" }}>
-                <select
-                  value={detailComplete}
-                  onChange={(e) => setDetailComplete(e.target.value as any)}
-                  style={{ ...select, width: 130 }}
-                >
+                <select value={detailComplete} onChange={(e) => setDetailComplete(e.target.value as any)} style={{ ...select, width: 130 }}>
                   <option value="">Any</option>
                   <option value="true">TRUE</option>
                   <option value="false">FALSE</option>
@@ -701,8 +716,7 @@ export default function DailyProductionAllTable({
 
       {error ? null : (
         <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to
-          scroll columns.
+          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to scroll columns.
         </div>
       )}
     </div>

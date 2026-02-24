@@ -29,6 +29,9 @@ export async function GET(req: Request) {
   const end = searchParams.get("end"); // YYYY-MM-DD
   const showAll = searchParams.get("all") === "1";
 
+  // ✅ NEW: global search
+  const q = (searchParams.get("q") || "").trim();
+
   // Filters
   const name = searchParams.get("name");
   const employeeNumber = searchParams.get("employee_number");
@@ -80,6 +83,31 @@ export async function GET(req: Request) {
     if (!start && !end) where.push(`l.entry_date >= (CURRENT_DATE - INTERVAL '30 days')`);
   }
 
+  // ✅ NEW: global search across common fields (including entry_date as text)
+  if (q) {
+    const like = `%${q}%`;
+
+    const p1 = `$${params.length + 1}`;
+    const p2 = `$${params.length + 2}`;
+    const p3 = `$${params.length + 3}`;
+    const p4 = `$${params.length + 4}`;
+    const p5 = `$${params.length + 5}`;
+    const p6 = `$${params.length + 6}`;
+    const p7 = `$${params.length + 7}`;
+
+    where.push(`(
+      l.name ILIKE ${p1}
+      OR CAST(l.employee_number AS text) ILIKE ${p2}
+      OR CAST(l.entry_date AS text) ILIKE ${p3}
+      OR CAST(l.sales_order AS text) ILIKE ${p4}
+      OR COALESCE(l.leather_style_color, '') ILIKE ${p5}
+      OR CAST(l.pieces_cut AS text) ILIKE ${p6}
+      OR COALESCE(l.notes, '') ILIKE ${p7}
+    )`);
+
+    params.push(like, like, like, like, like, like, like);
+  }
+
   if (name) add(`l.name ILIKE ?`, `%${name}%`);
   if (employeeNumber) add(`CAST(l.employee_number AS text) ILIKE ?`, `%${employeeNumber}%`);
   if (salesOrder) add(`CAST(l.sales_order AS text) ILIKE ?`, `%${salesOrder}%`);
@@ -123,10 +151,7 @@ export async function GET(req: Request) {
       "total_pieces_per_day",
     ];
 
-    const lines = [
-      headers.join(","),
-      ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(",")),
-    ];
+    const lines = [headers.join(","), ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(","))];
 
     return new NextResponse(lines.join("\n"), {
       status: 200,
