@@ -157,6 +157,9 @@ export default function EmblemProductionAllTable({
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
 
+  // ✅ NEW: global search
+  const [q, setQ] = useState("");
+
   // filters
   const [name, setName] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
@@ -188,6 +191,9 @@ export default function EmblemProductionAllTable({
       if (end) p.set("end", end);
     }
 
+    // ✅ NEW: global search param
+    if (q) p.set("q", q);
+
     if (name) p.set("name", name);
     if (employeeNumber) p.set("employee_number", employeeNumber);
     if (salesOrder) p.set("sales_order", salesOrder);
@@ -207,6 +213,7 @@ export default function EmblemProductionAllTable({
     showAll,
     start,
     end,
+    q,
     name,
     employeeNumber,
     salesOrder,
@@ -252,6 +259,7 @@ export default function EmblemProductionAllTable({
     showAll,
     start,
     end,
+    q,
     name,
     employeeNumber,
     salesOrder,
@@ -395,6 +403,25 @@ export default function EmblemProductionAllTable({
           </div>
         ) : null}
 
+        {/* ✅ NEW: Global Search */}
+        <div style={controlBox}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={label}>Search</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search: name, emp#, SO, detail, type, logo, pieces, notes…"
+              style={{ ...input, width: 360 }}
+            />
+          </div>
+
+          {q ? (
+            <button type="button" style={btn("ghost")} onClick={() => setQ("")} disabled={loading} title="Clear search">
+              Clear
+            </button>
+          ) : null}
+        </div>
+
         <div style={{ ...controlBox, marginLeft: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={label}>Page Size</span>
@@ -460,7 +487,6 @@ export default function EmblemProductionAllTable({
           <thead>
             <tr>
               <SortHeader label="Timestamp" sortKey="entry_ts" activeSort={sort} activeDir={dir} onChange={toggleSort} />
-              {/* ✅ Date right after Timestamp */}
               <SortHeader label="Date" sortKey="entry_date" activeSort={sort} activeDir={dir} onChange={toggleSort} />
 
               <SortHeader label="Name" sortKey="name" activeSort={sort} activeDir={dir} onChange={toggleSort} />
@@ -491,7 +517,6 @@ export default function EmblemProductionAllTable({
                 <input disabled placeholder="Timestamp" style={{ ...input, width: 130, opacity: 0.55 }} />
               </th>
 
-              {/* ✅ Date filter position right after Timestamp */}
               <th style={{ padding: 6, borderBottom: "1px solid #ddd", background: "#fff", whiteSpace: "nowrap" }}>
                 <span style={{ fontSize: 11, color: "#6b7280" }}>{showAll ? "All" : "Range"}</span>
               </th>
@@ -536,7 +561,6 @@ export default function EmblemProductionAllTable({
             {rows.map((r, idx) => (
               <tr key={`${r.entry_ts}-${r.sales_order}-${r.detail_number}-${idx}`}>
                 <td style={{ padding: 10, borderBottom: "1px solid #eee", whiteSpace: "nowrap" }}>{fmtTimestamp(r.entry_ts)}</td>
-                {/* ✅ Date right after Timestamp */}
                 <td style={{ padding: 10, borderBottom: "1px solid #eee", whiteSpace: "nowrap" }}>{fmtDateOnly(r.entry_date)}</td>
 
                 <td style={{ padding: 10, borderBottom: "1px solid #eee" }}>{r.name}</td>
@@ -573,8 +597,7 @@ export default function EmblemProductionAllTable({
 
       {error ? null : (
         <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to
-          scroll columns.
+          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to scroll columns.
         </div>
       )}
     </div>

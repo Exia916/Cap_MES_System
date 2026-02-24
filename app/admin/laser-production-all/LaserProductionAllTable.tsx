@@ -138,6 +138,9 @@ export default function LaserProductionAllTable({
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
 
+  // ✅ NEW: global search
+  const [q, setQ] = useState("");
+
   // filters
   const [name, setName] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
@@ -167,6 +170,9 @@ export default function LaserProductionAllTable({
       if (end) p.set("end", end);
     }
 
+    // ✅ NEW
+    if (q) p.set("q", q);
+
     if (name) p.set("name", name);
     if (employeeNumber) p.set("employee_number", employeeNumber);
     if (salesOrder) p.set("sales_order", salesOrder);
@@ -184,6 +190,7 @@ export default function LaserProductionAllTable({
     showAll,
     start,
     end,
+    q,
     name,
     employeeNumber,
     salesOrder,
@@ -223,7 +230,7 @@ export default function LaserProductionAllTable({
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAll, start, end, name, employeeNumber, salesOrder, leatherStyleColor, piecesCut, notes, pageSize]);
+  }, [showAll, start, end, q, name, employeeNumber, salesOrder, leatherStyleColor, piecesCut, notes, pageSize]);
 
   function exportCsv() {
     const p = new URLSearchParams(query);
@@ -357,6 +364,25 @@ export default function LaserProductionAllTable({
           </div>
         ) : null}
 
+        {/* ✅ NEW: Global Search */}
+        <div style={controlBox}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={label}>Search</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search: name, emp#, SO, leather, pieces, notes…"
+              style={{ ...input, width: 360 }}
+            />
+          </div>
+
+          {q ? (
+            <button type="button" style={btn("ghost")} onClick={() => setQ("")} disabled={loading} title="Clear search">
+              Clear
+            </button>
+          ) : null}
+        </div>
+
         <div style={{ ...controlBox, marginLeft: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={label}>Page Size</span>
@@ -422,7 +448,6 @@ export default function LaserProductionAllTable({
           <thead>
             <tr>
               <SortHeader label="Timestamp" sortKey="entry_ts" activeSort={sort} activeDir={dir} onChange={toggleSort} />
-              {/* ✅ Date next to Timestamp */}
               <SortHeader label="Date" sortKey="entry_date" activeSort={sort} activeDir={dir} onChange={toggleSort} />
 
               <SortHeader label="Name" sortKey="name" activeSort={sort} activeDir={dir} onChange={toggleSort} />
@@ -432,13 +457,7 @@ export default function LaserProductionAllTable({
               <th style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd", background: "#fafafa", whiteSpace: "nowrap" }}>
                 Notes
               </th>
-              <SortHeader
-                label="Total Pieces Per Day"
-                sortKey="total_pieces_per_day"
-                activeSort={sort}
-                activeDir={dir}
-                onChange={toggleSort}
-              />
+              <SortHeader label="Total Pieces Per Day" sortKey="total_pieces_per_day" activeSort={sort} activeDir={dir} onChange={toggleSort} />
               <SortHeader label="Employee #" sortKey="employee_number" activeSort={sort} activeDir={dir} onChange={toggleSort} />
             </tr>
 
@@ -510,8 +529,7 @@ export default function LaserProductionAllTable({
 
       {error ? null : (
         <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to
-          scroll columns.
+          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to scroll columns.
         </div>
       )}
     </div>

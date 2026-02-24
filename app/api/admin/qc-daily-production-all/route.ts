@@ -33,6 +33,9 @@ export async function GET(req: Request) {
   const end = searchParams.get("end"); // YYYY-MM-DD
   const showAll = searchParams.get("all") === "1";
 
+  // ✅ NEW: Global search
+  const q = (searchParams.get("q") || "").trim();
+
   // Filters
   const name = searchParams.get("name");
   const employeeNumber = searchParams.get("employee_number");
@@ -97,6 +100,36 @@ export async function GET(req: Request) {
     }
   }
 
+  // ✅ NEW: Global search across common fields (incl qty fields)
+  if (q) {
+    const like = `%${q}%`;
+
+    const p1 = `$${params.length + 1}`;
+    const p2 = `$${params.length + 2}`;
+    const p3 = `$${params.length + 3}`;
+    const p4 = `$${params.length + 4}`;
+    const p5 = `$${params.length + 5}`;
+    const p6 = `$${params.length + 6}`;
+    const p7 = `$${params.length + 7}`;
+    const p8 = `$${params.length + 8}`;
+    const p9 = `$${params.length + 9}`;
+
+    where.push(`(
+      q.name ILIKE ${p1}
+      OR COALESCE(q.flat_or_3d, '') ILIKE ${p2}
+      OR COALESCE(q.notes, '') ILIKE ${p3}
+      OR CAST(q.employee_number AS text) ILIKE ${p4}
+      OR CAST(q.sales_order AS text) ILIKE ${p5}
+      OR CAST(q.detail_number AS text) ILIKE ${p6}
+      OR CAST(q.order_quantity AS text) ILIKE ${p7}
+      OR CAST(q.inspected_quantity AS text) ILIKE ${p8}
+      OR CAST(q.rejected_quantity AS text) ILIKE ${p9}
+      OR CAST(q.quantity_shipped AS text) ILIKE $${params.length + 10}
+    )`);
+
+    params.push(like, like, like, like, like, like, like, like, like, like);
+  }
+
   if (name) add(`q.name ILIKE ?`, `%${name}%`);
   if (employeeNumber) add(`CAST(q.employee_number AS text) ILIKE ?`, `%${employeeNumber}%`);
   if (salesOrder) add(`CAST(q.sales_order AS text) ILIKE ?`, `%${salesOrder}%`);
@@ -112,13 +145,6 @@ export async function GET(req: Request) {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  // Derived columns per your rules:
-  // - Total Quantity Inspected By Date = sum(inspected_quantity) partition by entry_date
-  // - Flat Totals = sum(inspected_quantity where flat_or_3d = 'Flat') partition by entry_date
-  // - 3D Totals = sum(inspected_quantity where flat_or_3d = '3D') partition by entry_date
-  // - Flat Totals By Person = same + partition by entry_date,name
-  // - 3D Totals By Person = same + partition by entry_date,name
-  // - Total Quantity Inspected By Person = sum(inspected_quantity) partition by entry_date,name
   const baseSelect = `
     SELECT
       q.id,
@@ -178,10 +204,7 @@ export async function GET(req: Request) {
       "employee_number",
     ];
 
-    const lines = [
-      headers.join(","),
-      ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(",")),
-    ];
+    const lines = [headers.join(","), ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(","))];
 
     return new NextResponse(lines.join("\n"), {
       status: 200,
@@ -199,7 +222,6 @@ export async function GET(req: Request) {
   const pagedSql = `${baseSelect} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   const pagedParams = [...params, pageSize, offset];
 
-  // Totals (top metrics)
   const totalsSql = `
     SELECT
       COALESCE(SUM(q.inspected_quantity), 0)::bigint AS total_inspected_quantity,

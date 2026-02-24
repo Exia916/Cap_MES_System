@@ -58,6 +58,7 @@ function fmtEmployeeNumberNoCommas(v: any) {
   const s = v === null || v === undefined ? "" : String(v);
   return s.replace(/,/g, "");
 }
+
 // Dates
 const dateFmt = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
@@ -164,6 +165,9 @@ export default function QCDailyProductionAllTable({
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
 
+  // ✅ NEW: global search
+  const [q, setQ] = useState("");
+
   // filters
   const [name, setName] = useState("");
   const [salesOrder, setSalesOrder] = useState("");
@@ -197,6 +201,9 @@ export default function QCDailyProductionAllTable({
       if (end) p.set("end", end);
     }
 
+    // ✅ NEW: global search param
+    if (q) p.set("q", q);
+
     if (name) p.set("name", name);
     if (salesOrder) p.set("sales_order", salesOrder);
     if (detailNumber) p.set("detail_number", detailNumber);
@@ -218,6 +225,7 @@ export default function QCDailyProductionAllTable({
     showAll,
     start,
     end,
+    q,
     name,
     salesOrder,
     detailNumber,
@@ -265,6 +273,7 @@ export default function QCDailyProductionAllTable({
     showAll,
     start,
     end,
+    q,
     name,
     salesOrder,
     detailNumber,
@@ -409,6 +418,25 @@ export default function QCDailyProductionAllTable({
             </div>
           </div>
         ) : null}
+
+        {/* ✅ NEW: Global Search */}
+        <div style={controlBox}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={label}>Search</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search: name, SO, detail, emp#, flat/3D, qty, notes…"
+              style={{ ...input, width: 340 }}
+            />
+          </div>
+
+          {q ? (
+            <button type="button" style={btn("ghost")} onClick={() => setQ("")} disabled={loading} title="Clear search">
+              Clear
+            </button>
+          ) : null}
+        </div>
 
         <div style={{ ...controlBox, marginLeft: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -628,8 +656,7 @@ export default function QCDailyProductionAllTable({
 
       {error ? null : (
         <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to
-          scroll columns.
+          Tip: Filters auto-refresh after you stop typing (400ms). Click column headers to sort. Use the top scrollbar to scroll columns.
         </div>
       )}
     </div>

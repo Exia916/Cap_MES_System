@@ -42,6 +42,9 @@ export async function GET(req: Request) {
   const end = searchParams.get("end"); // YYYY-MM-DD
   const showAll = searchParams.get("all") === "1";
 
+  // ✅ NEW: Global search
+  const q = (searchParams.get("q") || "").trim();
+
   const shift = searchParams.get("shift");
   const employeeNumber = searchParams.get("employee_number");
   const name = searchParams.get("name");
@@ -105,6 +108,53 @@ export async function GET(req: Request) {
     if (!start && !end) {
       where.push(`e.shift_date >= (CURRENT_DATE - INTERVAL '30 days')`);
     }
+  }
+
+  // ✅ NEW: Global search across common fields
+  // - Uses ILIKE for text fields
+  // - Casts numeric fields to text
+  if (q) {
+    add(
+      `(
+        e.name ILIKE ?
+        OR e.shift ILIKE ?
+        OR e.embroidery_location ILIKE ?
+        OR COALESCE(e.notes, '') ILIKE ?
+        OR CAST(e.employee_number AS text) ILIKE ?
+        OR CAST(e.machine_number AS text) ILIKE ?
+        OR CAST(e.sales_order AS text) ILIKE ?
+        OR CAST(e.detail_number AS text) ILIKE ?
+      )`,
+      `%${q}%`
+    );
+
+    // The above add() only inserts ONE parameter, but we need 8.
+    // So we manually expand using additional adds with no extra where entries:
+    // We'll remove the last pushed WHERE and rebuild properly below.
+    where.pop();
+    params.pop();
+
+    const like = `%${q}%`;
+    const p1 = `$${params.length + 1}`;
+    const p2 = `$${params.length + 2}`;
+    const p3 = `$${params.length + 3}`;
+    const p4 = `$${params.length + 4}`;
+    const p5 = `$${params.length + 5}`;
+    const p6 = `$${params.length + 6}`;
+    const p7 = `$${params.length + 7}`;
+    const p8 = `$${params.length + 8}`;
+
+    where.push(`(
+      e.name ILIKE ${p1}
+      OR e.shift ILIKE ${p2}
+      OR e.embroidery_location ILIKE ${p3}
+      OR COALESCE(e.notes, '') ILIKE ${p4}
+      OR CAST(e.employee_number AS text) ILIKE ${p5}
+      OR CAST(e.machine_number AS text) ILIKE ${p6}
+      OR CAST(e.sales_order AS text) ILIKE ${p7}
+      OR CAST(e.detail_number AS text) ILIKE ${p8}
+    )`);
+    params.push(like, like, like, like, like, like, like, like);
   }
 
   if (shift) add(`e.shift ILIKE ?`, `%${shift}%`);
@@ -183,10 +233,7 @@ export async function GET(req: Request) {
       "shift",
     ];
 
-    const lines = [
-      headers.join(","),
-      ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(",")),
-    ];
+    const lines = [headers.join(","), ...rows.map((r: any) => headers.map((h) => escCsv(r[h])).join(","))];
 
     return new NextResponse(lines.join("\n"), {
       status: 200,
@@ -213,11 +260,7 @@ export async function GET(req: Request) {
     ${whereSql}
   `;
 
-  const [countRes, rowsRes, totalsRes] = await Promise.all([
-    db.query(countSql, params),
-    db.query(pagedSql, pagedParams),
-    db.query(totalsSql, params),
-  ]);
+  const [countRes, rowsRes, totalsRes] = await Promise.all([db.query(countSql, params), db.query(pagedSql, pagedParams), db.query(totalsSql, params)]);
 
   const totalCount = countRes.rows?.[0]?.count ?? 0;
 
