@@ -1,0 +1,357 @@
+// app/admin/global-search/page.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+type Me = {
+  username: string | null;
+  displayName: string | null;
+  employeeNumber: number | null;
+  role: string | null;
+};
+
+type Section = {
+  key: "daily" | "qc" | "emblem" | "laser";
+  title: string;
+  count: number;
+  rows: any[];
+};
+
+type ApiResponse = {
+  q: string;
+  start: string | null;
+  end: string | null;
+  all: boolean;
+  limit: number;
+  sections: Section[];
+};
+
+const nf0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+function fmtInt(v: any) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  return nf0.format(n);
+}
+
+const dateFmt = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit" });
+const tsFmt = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit" });
+
+function fmtDateOnly(value: any) {
+  if (!value) return "";
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return dateFmt.format(new Date(y, m - 1, d));
+  }
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  return dateFmt.format(dt);
+}
+
+function fmtTimestamp(value: any) {
+  if (!value) return "";
+  const dt = new Date(String(value));
+  if (Number.isNaN(dt.getTime())) return String(value);
+  return tsFmt.format(dt);
+}
+
+export default function GlobalSearchPage() {
+  const router = useRouter();
+  const sp = useSearchParams();
+
+  const q = (sp.get("q") || "").trim();
+
+  // Optional: support date range later (kept simple now)
+  const [showAll, setShowAll] = useState(false);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+
+  const [me, setMe] = useState<Me | null>(null);
+  const [meLoaded, setMeLoaded] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<ApiResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const role = useMemo(() => (me?.role ?? "").trim().toUpperCase(), [me?.role]);
+  const canAccess = role === "ADMIN" || role === "MANAGER";
+
+  // Fetch me
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setMeLoaded(false);
+      try {
+        const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
+        if (!res.ok) {
+          if (!alive) return;
+          setMe(null);
+          setMeLoaded(true);
+          return;
+        }
+        const j = (await res.json()) as Me;
+        if (!alive) return;
+        setMe(j);
+        setMeLoaded(true);
+      } catch {
+        if (!alive) return;
+        setMe(null);
+        setMeLoaded(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Load search results
+  useEffect(() => {
+    if (!meLoaded) return;
+    if (!canAccess) return;
+
+    // No query => blank page, no call
+    if (!q) {
+      setData(null);
+      setError(null);
+      return;
+    }
+
+    const p = new URLSearchParams();
+    p.set("q", q);
+
+    if (showAll) p.set("all", "1");
+    else {
+      if (start) p.set("start", start);
+      if (end) p.set("end", end);
+    }
+
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/admin/global-search?${p.toString()}`, { cache: "no-store" });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error || "Failed to load");
+        if (!alive) return;
+        setData(j);
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message || "Failed to load");
+        setData(null);
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [q, showAll, start, end, meLoaded, canAccess]);
+
+  if (!meLoaded) {
+    return (
+      <div style={{ padding: 16 }}>
+        <h1 style={{ marginBottom: 6 }}>Global Search</h1>
+        <div style={{ color: "#6b7280" }}>Loading…</div>
+      </div>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <div style={{ padding: 16 }}>
+        <h1 style={{ marginBottom: 10 }}>Global Search</h1>
+        <div style={{ color: "crimson", fontWeight: 800 }}>You do not have access to Global Search.</div>
+        <div style={{ marginTop: 10, color: "#6b7280", fontSize: 13 }}>
+          Allowed roles: <b>ADMIN</b>, <b>MANAGER</b>. (Your role from /api/me is: <b>{me?.role ?? "null"}</b>)
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <h1 style={{ margin: 0 }}>Global Search</h1>
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+            <span style={{ fontSize: 12, color: "#374151", fontWeight: 800 }}>Show All</span>
+          </label>
+
+          {!showAll ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, color: "#374151", fontWeight: 800 }}>Start</span>
+                <input type="date" value={start} onChange={(e) => setStart(e.target.value)} style={input} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, color: "#374151", fontWeight: 800 }}>End</span>
+                <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} style={input} />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12, color: "#111827" }}>
+        <span style={{ fontWeight: 800 }}>Query:</span> <span style={{ fontFamily: "monospace" }}>{q || "(empty)"}</span>
+      </div>
+
+      {error && <div style={{ color: "crimson", marginBottom: 10 }}>{error}</div>}
+      {loading && <div style={{ marginBottom: 10, fontWeight: 800 }}>Searching…</div>}
+
+      {!q ? (
+        <div style={{ color: "#6b7280" }}>Type a value in the navbar search and press Enter / Search.</div>
+      ) : null}
+
+      {data?.sections?.map((sec) => (
+        <div key={sec.key} style={sectionCard}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ fontWeight: 900 }}>{sec.title}</div>
+            <div style={{ color: "#6b7280", fontSize: 12 }}>Matches: {fmtInt(sec.count)}</div>
+
+            {/* Quick links to module pages using q filter you already added */}
+            <button
+              onClick={() => {
+                const url =
+                  sec.key === "daily"
+                    ? `/admin/daily-production-all?q=${encodeURIComponent(q)}`
+                    : sec.key === "qc"
+                      ? `/admin/qc-daily-production-all?q=${encodeURIComponent(q)}`
+                      : sec.key === "emblem"
+                        ? `/admin/emblem-production-all?q=${encodeURIComponent(q)}`
+                        : `/admin/laser-production-all?q=${encodeURIComponent(q)}`;
+                router.push(url);
+              }}
+              style={btnGhost}
+            >
+              Open {sec.key.toUpperCase()} (All)
+            </button>
+          </div>
+
+          {sec.rows.length === 0 ? (
+            <div style={{ color: "#6b7280" }}>No matches.</div>
+          ) : (
+            <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 10, background: "#fff" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 1100 }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Timestamp</th>
+                    <th style={th}>Date</th>
+                    <th style={th}>Name</th>
+                    <th style={th}>Emp#</th>
+                    <th style={th}>Key Fields</th>
+                    <th style={th}>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sec.rows.map((r: any, idx: number) => (
+                    <tr key={`${sec.key}-${idx}`}>
+                      <td style={td}>{fmtTimestamp(r.entry_ts)}</td>
+                      <td style={td}>{fmtDateOnly(r.entry_date)}</td>
+                      <td style={td}>{r.name ?? ""}</td>
+                      <td style={td}>{r.employee_number ?? ""}</td>
+                      <td style={td}>
+                        <KeyFields sectionKey={sec.key} r={r} />
+                      </td>
+                      <td style={{ ...td, maxWidth: 520 }}>{r.notes ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KeyFields({ sectionKey, r }: { sectionKey: Section["key"]; r: any }) {
+  if (sectionKey === "daily") {
+    return (
+      <span>
+        SO: <b>{r.sales_order ?? ""}</b> · Detail: <b>{r.detail_number ?? ""}</b> · Loc:{" "}
+        <b>{r.embroidery_location ?? ""}</b> · Pieces: <b>{r.pieces ?? ""}</b> · Shift: <b>{r.shift ?? ""}</b> · Machine:{" "}
+        <b>{r.machine_number ?? ""}</b>
+      </span>
+    );
+  }
+
+  if (sectionKey === "qc") {
+    return (
+      <span>
+        SO: <b>{r.sales_order ?? ""}</b> · Detail: <b>{r.detail_number ?? ""}</b> · Flat/3D: <b>{r.flat_or_3d ?? ""}</b>{" "}
+        · Inspected: <b>{r.inspected_quantity ?? ""}</b> · Rejected: <b>{r.rejected_quantity ?? ""}</b> · Shipped:{" "}
+        <b>{r.quantity_shipped ?? ""}</b>
+      </span>
+    );
+  }
+
+  if (sectionKey === "emblem") {
+    return (
+      <span>
+        SO: <b>{r.sales_order ?? ""}</b> · Detail: <b>{r.detail_number ?? ""}</b> · Type: <b>{r.emblem_type ?? ""}</b>{" "}
+        · Logo: <b>{r.logo_name ?? ""}</b> · Pieces: <b>{r.pieces ?? ""}</b>
+      </span>
+    );
+  }
+
+  // laser
+  return (
+    <span>
+      SO: <b>{r.sales_order ?? ""}</b> · Leather: <b>{r.leather_style_color ?? ""}</b> · Pieces Cut: <b>{r.pieces_cut ?? ""}</b>
+    </span>
+  );
+}
+
+/* styles */
+const input: React.CSSProperties = {
+  height: 34,
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  padding: "0 10px",
+  background: "#fff",
+  fontSize: 13,
+  outline: "none",
+};
+
+const sectionCard: React.CSSProperties = {
+  border: "1px solid #ddd",
+  borderRadius: 14,
+  padding: 12,
+  marginBottom: 14,
+  background: "#fff",
+};
+
+const th: React.CSSProperties = {
+  textAlign: "left",
+  padding: 10,
+  borderBottom: "1px solid #ddd",
+  background: "#fafafa",
+  whiteSpace: "nowrap",
+};
+
+const td: React.CSSProperties = {
+  padding: 10,
+  borderBottom: "1px solid #eee",
+  verticalAlign: "top",
+};
+
+const btnGhost: React.CSSProperties = {
+  marginLeft: "auto",
+  height: 30,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  background: "#ffffff",
+  color: "#111827",
+  fontWeight: 800,
+  fontSize: 12,
+  cursor: "pointer",
+};

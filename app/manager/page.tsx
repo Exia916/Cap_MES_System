@@ -1,4 +1,4 @@
-// app/admin/page.tsx
+// app/manager/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +10,7 @@ type MeResponse = {
   role?: string | null;
 };
 
-export default function AdminHomePage() {
+export default function ManagerPage() {
   const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -39,24 +39,40 @@ export default function AdminHomePage() {
 
   const role = useMemo(() => (me?.role ?? "").toUpperCase(), [me?.role]);
   const username = useMemo(() => (me?.username ?? "").toLowerCase(), [me?.username]);
+
   const isAdmin = role === "ADMIN" || username === "admin";
+  const isManagerRole = isAdmin || role === "MANAGER" || role === "SUPERVISOR";
 
   useEffect(() => {
     if (!loaded) return;
-    if (!isAdmin) router.replace("/dashboard");
-  }, [loaded, isAdmin, router]);
+    if (!isManagerRole) router.replace("/dashboard");
+  }, [loaded, isManagerRole, router]);
 
   if (!loaded) return <div className="p-6">Loading…</div>;
-  if (!isAdmin) return null;
+  if (!isManagerRole) return null;
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-semibold">Admin</h1>
-      <p className="mt-1 text-sm text-gray-600">Administrative options.</p>
+      <h1 className="text-2xl font-semibold">Manager</h1>
+      <p className="mt-1 text-sm text-gray-600">
+        Manager/All-views shortcuts.
+      </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Link className="pill" href="/admin/users">
-          → Admin Users
+        <Link className="pill" href="/admin/daily-production-all">
+          → Daily Production (All)
+        </Link>
+
+        <Link className="pill" href="/admin/qc-daily-production-all">
+          → QC Daily (All)
+        </Link>
+
+        <Link className="pill" href="/admin/emblem-production-all">
+          → Emblem (All)
+        </Link>
+
+        <Link className="pill" href="/admin/laser-production-all">
+          → Laser (All)
         </Link>
       </div>
 

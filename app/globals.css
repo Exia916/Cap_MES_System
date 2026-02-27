@@ -24,3 +24,25 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.NavLink > a:hover {
+    background: #111827;
+    color: #ffffff !important;
+}
+
+.active {
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: rgb(0, 0, 0);
+    background-color: rgb(240, 240, 240);
+    font-weight: 600;
+}
+
+.active:hover {
+  color:#000;
+}
+
+#active:hover {
+  color: #000 !important;
+}

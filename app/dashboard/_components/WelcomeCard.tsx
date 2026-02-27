@@ -1,3 +1,4 @@
+// app/dashboard/_components/WelcomeCard.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -36,21 +37,6 @@ export default function WelcomeCard() {
   }, []);
 
   const role = (me?.role || "").toUpperCase();
-  const username = (me?.username || "").toLowerCase();
-
-  // ✅ robust role detection (role preferred, username fallback)
-  const isAdmin = role === "ADMIN" || username === "admin";
-  const isManagerRole =
-    role === "ADMIN" || role === "SUPERVISOR" || role === "MANAGER" || username === "admin";
-
-  // Toggle these while you’re still building manager/all pages
-  const showManagerAllLinks = true; // ✅ Daily Production All is ready
-  const showModuleLinks = false; // existing module links (/daily-production etc) toggle
-
-  // Toggle these one-by-one as you build them
-  const enableQCDailyAll = true; // ✅ ready
-  const enableEmblemAll = true; // ✅ ready
-  const enableLaserAll = true; // ✅ ready
 
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
@@ -72,63 +58,17 @@ export default function WelcomeCard() {
               </>
             ) : null}
           </div>
+
+          <div className="mt-3 text-sm text-gray-600">
+            Use the navigation bar to access modules. Manager/Admin options appear
+            based on your role.
+          </div>
         </div>
 
+        {/* ✅ New link to Metrics page */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Existing module pages (non-admin) */}
-          {showModuleLinks ? (
-            <>
-              <Link className="pill" href="/daily-production">
-                → All Embroidery Entries
-              </Link>
-              <Link className="pill" href="/qc-daily-production">
-                → All QC Entries
-              </Link>
-              <Link className="pill" href="/emblem-production">
-                → All Emblem Entries
-              </Link>
-              <Link className="pill" href="/laser-production">
-                → All Laser Entries
-              </Link>
-            </>
-          ) : null}
-
-          {/* Manager/Admin “All” views */}
-          {showManagerAllLinks && isManagerRole ? (
-            <>
-              <Link className="pill" href="/admin/daily-production-all">
-                → Daily Production (All)
-              </Link>
-
-              {enableQCDailyAll ? (
-                <Link className="pill" href="/admin/qc-daily-production-all">
-                  → QC Daily (All)
-                </Link>
-              ) : null}
-
-              {enableEmblemAll ? (
-                <Link className="pill" href="/admin/emblem-production-all">
-                  → Emblem (All)
-                </Link>
-              ) : null}
-
-              {enableLaserAll ? (
-                <Link className="pill" href="/admin/laser-production-all">
-                  → Laser (All)
-                </Link>
-              ) : null}
-            </>
-          ) : null}
-
-          {/* Admin-only */}
-          {isAdmin ? (
-            <Link className="pill" href="/admin/users">
-              → Admin Users
-            </Link>
-          ) : null}
-
-          <Link className="pill-danger" href="/logout">
-            Logout
+          <Link className="pill" href="/dashboard/metrics">
+            → My Metrics
           </Link>
         </div>
       </div>
@@ -150,22 +90,6 @@ export default function WelcomeCard() {
         }
         .pill:hover {
           background: #f9fafb;
-        }
-        .pill-danger {
-          display: inline-flex;
-          align-items: center;
-          height: 34px;
-          padding: 0 14px;
-          border-radius: 9999px;
-          border: none;
-          background: #ef4444;
-          color: #ffffff;
-          font-size: 13px;
-          font-weight: 700;
-          text-decoration: none;
-        }
-        .pill-danger:hover {
-          background: #dc2626;
         }
       `}</style>
     </div>
