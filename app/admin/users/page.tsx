@@ -15,12 +15,19 @@ type UserRow = {
   department: string | null;
 };
 
-const ROLE_OPTIONS = ["ADMIN", "SUPERVISOR", "USER"] as const;
+type RoleOption = { code: string; label: string };
+type ShiftOption = { code: string; name?: string; label?: string };
+type DepartmentOption = { code: string; name?: string; label?: string };
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
+
+  // lookups
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
+  const [shiftOptions, setShiftOptions] = useState<ShiftOption[]>([]);
+  const [deptOptions, setDeptOptions] = useState<DepartmentOption[]>([]);
 
   // ✅ search
   const [search, setSearch] = useState("");
@@ -31,7 +38,7 @@ export default function AdminUsersPage() {
     display_name: "",
     name: "",
     employee_number: "",
-    role: "USER",
+    role: "",
     shift: "",
     department: "",
     is_active: true,
@@ -44,7 +51,7 @@ export default function AdminUsersPage() {
     display_name: "",
     name: "",
     employee_number: "",
-    role: "USER",
+    role: "",
     shift: "",
     department: "",
     is_active: true,
@@ -53,16 +60,33 @@ export default function AdminUsersPage() {
 
   async function loadUsers() {
     setError("");
-    const res = await fetch("/api/admin/users", { cache: "no-store" });
+    const res = await fetch("/api/admin/users", { cache: "no-store", credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error((json as any)?.error || "Failed to load users");
     setUsers(((json as any).users || []) as UserRow[]);
   }
 
+  async function loadLookups() {
+    // roles
+    const rr = await fetch("/api/lookups/roles", { cache: "no-store", credentials: "include" });
+    const rj = await rr.json().catch(() => ({}));
+    if (rr.ok) setRoleOptions((rj as any).roles || []);
+
+    // shifts
+    const sr = await fetch("/api/lookups/shifts", { cache: "no-store", credentials: "include" });
+    const sj = await sr.json().catch(() => ({}));
+    if (sr.ok) setShiftOptions((sj as any).shifts || (sj as any).rows || []);
+
+    // departments
+    const dr = await fetch("/api/lookups/departments", { cache: "no-store", credentials: "include" });
+    const dj = await dr.json().catch(() => ({}));
+    if (dr.ok) setDeptOptions((dj as any).departments || (dj as any).rows || []);
+  }
+
   useEffect(() => {
     (async () => {
       try {
-        await loadUsers();
+        await Promise.all([loadUsers(), loadLookups()]);
       } catch (e: any) {
         setError(e?.message || "Failed to load users");
       } finally {
@@ -70,6 +94,13 @@ export default function AdminUsersPage() {
       }
     })();
   }, []);
+
+  // default role after roles load
+  useEffect(() => {
+    if (!roleOptions.length) return;
+    setNewUser((p) => ({ ...p, role: p.role || roleOptions[0]?.code || "USER" }));
+    setEditForm((p) => ({ ...p, role: p.role || roleOptions[0]?.code || "USER" }));
+  }, [roleOptions]);
 
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -91,32 +122,19 @@ export default function AdminUsersPage() {
     return haystack.includes(normalizedSearch);
   };
 
-  const totalActiveCount = useMemo(
-    () => users.filter((u) => u.is_active).length,
-    [users]
-  );
+  const totalActiveCount = useMemo(() => users.filter((u) => u.is_active).length, [users]);
 
-  const activeUsers = useMemo(
-    () => users.filter((u) => u.is_active).filter(matches),
-    [users, normalizedSearch]
-  );
+  const activeUsers = useMemo(() => users.filter((u) => u.is_active).filter(matches), [users, normalizedSearch]);
 
-  const inactiveUsers = useMemo(
-    () => users.filter((u) => !u.is_active).filter(matches),
-    [users, normalizedSearch]
-  );
+  const inactiveUsers = useMemo(() => users.filter((u) => !u.is_active).filter(matches), [users, normalizedSearch]);
 
-  const onNewChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const onNewChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
     const checked = (e.target as HTMLInputElement).checked;
     setNewUser((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
   };
 
-  const onEditChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const onEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
     const checked = (e.target as HTMLInputElement).checked;
     setEditForm((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
@@ -134,11 +152,12 @@ export default function AdminUsersPage() {
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         ...newUser,
-        employee_number: newUser.employee_number
-          ? Number(newUser.employee_number)
-          : null,
+        employee_number: newUser.employee_number ? Number(newUser.employee_number) : null,
+        shift: newUser.shift || null,
+        department: newUser.department || null,
       }),
     });
 
@@ -154,7 +173,7 @@ export default function AdminUsersPage() {
       display_name: "",
       name: "",
       employee_number: "",
-      role: "USER",
+      role: roleOptions[0]?.code || "USER",
       shift: "",
       department: "",
       is_active: true,
@@ -165,8 +184,6 @@ export default function AdminUsersPage() {
 
   const startEditing = (u: UserRow) => {
     setEditingId(u.id);
-
-    // ✅ optional UX: keep row visible by searching for it
     setSearch(u.username);
 
     setEditForm({
@@ -175,7 +192,7 @@ export default function AdminUsersPage() {
       display_name: u.display_name || "",
       name: u.name || "",
       employee_number: u.employee_number?.toString() || "",
-      role: (u.role || "USER").toUpperCase(),
+      role: String(u.role || roleOptions[0]?.code || "USER").toUpperCase(),
       shift: u.shift || "",
       department: u.department || "",
       is_active: u.is_active,
@@ -191,7 +208,7 @@ export default function AdminUsersPage() {
       display_name: "",
       name: "",
       employee_number: "",
-      role: "USER",
+      role: roleOptions[0]?.code || "USER",
       shift: "",
       department: "",
       is_active: true,
@@ -206,11 +223,12 @@ export default function AdminUsersPage() {
     const res = await fetch("/api/admin/users", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         ...editForm,
-        employee_number: editForm.employee_number
-          ? Number(editForm.employee_number)
-          : null,
+        employee_number: editForm.employee_number ? Number(editForm.employee_number) : null,
+        shift: editForm.shift || null,
+        department: editForm.department || null,
       }),
     });
 
@@ -220,19 +238,18 @@ export default function AdminUsersPage() {
       return;
     }
 
-    // Keep editor open but clear password field
     setEditForm((p) => ({ ...p, new_password: "" }));
     await loadUsers();
   };
 
   const deactivateUser = async (id: string) => {
-    if (!confirm("Deactivate this user? They will no longer be able to log in."))
-      return;
+    if (!confirm("Deactivate this user? They will no longer be able to log in.")) return;
 
     setError("");
 
     const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: "DELETE",
+      credentials: "include",
     });
 
     const json = await res.json().catch(() => ({}));
@@ -242,7 +259,6 @@ export default function AdminUsersPage() {
     }
 
     if (editingId === id) cancelEditing();
-
     await loadUsers();
   };
 
@@ -252,117 +268,76 @@ export default function AdminUsersPage() {
     <div className="p-6 space-y-4">
       <div className="rounded-xl border bg-white p-4">
         <h1 className="text-xl font-semibold">Admin – Users</h1>
-        <p className="text-sm text-gray-600">
-          Create, edit, reset passwords, and deactivate users.
-        </p>
+        <p className="text-sm text-gray-600">Create, edit, reset passwords, and deactivate users.</p>
       </div>
 
       {error ? (
-        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
       ) : null}
 
       {/* Add User */}
       <div className="rounded-xl border bg-white p-4">
         <h2 className="text-base font-semibold mb-3">Add User</h2>
-        <form
-          onSubmit={createUser}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-        >
+        <form onSubmit={createUser} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Name">
-            <input
-              className="input"
-              name="name"
-              value={newUser.name}
-              onChange={onNewChange}
-            />
+            <input className="input" name="name" value={newUser.name} onChange={onNewChange} />
           </Field>
 
           <Field label="Display Name">
-            <input
-              className="input"
-              name="display_name"
-              value={newUser.display_name}
-              onChange={onNewChange}
-            />
+            <input className="input" name="display_name" value={newUser.display_name} onChange={onNewChange} />
           </Field>
 
           <Field label="Username *">
-            <input
-              className="input"
-              name="username"
-              value={newUser.username}
-              onChange={onNewChange}
-            />
+            <input className="input" name="username" value={newUser.username} onChange={onNewChange} />
           </Field>
 
           <Field label="Employee #">
-            <input
-              className="input"
-              name="employee_number"
-              value={newUser.employee_number}
-              onChange={onNewChange}
-            />
+            <input className="input" name="employee_number" value={newUser.employee_number} onChange={onNewChange} />
           </Field>
 
           <Field label="Role *">
-            <select
-              className="input"
-              name="role"
-              value={newUser.role}
-              onChange={onNewChange}
-            >
-              {ROLE_OPTIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
+            <select className="input" name="role" value={newUser.role} onChange={onNewChange}>
+              {roleOptions.map((r) => (
+                <option key={r.code} value={r.code}>
+                  {r.label}
                 </option>
               ))}
             </select>
           </Field>
 
           <Field label="Password *">
-            <input
-              className="input"
-              type="password"
-              name="password"
-              value={newUser.password}
-              onChange={onNewChange}
-            />
+            <input className="input" type="password" name="password" value={newUser.password} onChange={onNewChange} />
           </Field>
 
-          <Field label="Shift">
-            <input
-              className="input"
-              name="shift"
-              value={newUser.shift}
-              onChange={onNewChange}
-            />
+          <Field label="Shift (code)">
+            <select className="input" name="shift" value={newUser.shift} onChange={onNewChange}>
+              <option value="">— Select —</option>
+              {shiftOptions.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name || s.label || s.code}
+                </option>
+              ))}
+            </select>
           </Field>
 
-          <Field label="Department">
-            <input
-              className="input"
-              name="department"
-              value={newUser.department}
-              onChange={onNewChange}
-            />
+          <Field label="Department (code)">
+            <select className="input" name="department" value={newUser.department} onChange={onNewChange}>
+              <option value="">— Select —</option>
+              {deptOptions.map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.name || d.label || d.code}
+                </option>
+              ))}
+            </select>
           </Field>
 
           <div className="flex items-end gap-3">
             <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                name="is_active"
-                checked={newUser.is_active}
-                onChange={onNewChange}
-              />
+              <input type="checkbox" name="is_active" checked={newUser.is_active} onChange={onNewChange} />
               Active
             </label>
 
-            <button className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
-              Add User
-            </button>
+            <button className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Add User</button>
           </div>
         </form>
       </div>
@@ -371,7 +346,6 @@ export default function AdminUsersPage() {
       <div className="rounded-xl border bg-white p-4">
         <h2 className="text-base font-semibold mb-3">Active Users</h2>
 
-        {/* ✅ Search */}
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 w-full">
             <input
@@ -411,6 +385,8 @@ export default function AdminUsersPage() {
                 <th className="py-2 pr-3">Username</th>
                 <th className="py-2 pr-3">Employee #</th>
                 <th className="py-2 pr-3">Role</th>
+                <th className="py-2 pr-3">Shift</th>
+                <th className="py-2 pr-3">Department</th>
                 <th className="py-2 pr-3">Active</th>
                 <th className="py-2 pr-3">Actions</th>
               </tr>
@@ -424,6 +400,8 @@ export default function AdminUsersPage() {
                     <td className="py-2 pr-3">{u.username}</td>
                     <td className="py-2 pr-3">{u.employee_number ?? "-"}</td>
                     <td className="py-2 pr-3">{String(u.role).toUpperCase()}</td>
+                    <td className="py-2 pr-3">{u.shift || "-"}</td>
+                    <td className="py-2 pr-3">{u.department || "-"}</td>
                     <td className="py-2 pr-3">{u.is_active ? "Yes" : "No"}</td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-wrap gap-2">
@@ -447,12 +425,11 @@ export default function AdminUsersPage() {
 
                   {editingId === u.id ? (
                     <tr className="border-b">
-                      <td colSpan={6} className="py-3">
+                      <td colSpan={8} className="py-3">
                         <div className="rounded-lg border bg-gray-50 p-4">
                           <div className="mb-3 flex items-center justify-between">
                             <div className="text-sm font-semibold">
-                              Edit User:{" "}
-                              <span className="font-mono">{u.username}</span>
+                              Edit User: <span className="font-mono">{u.username}</span>
                             </div>
                             <button
                               type="button"
@@ -463,17 +440,9 @@ export default function AdminUsersPage() {
                             </button>
                           </div>
 
-                          <form
-                            onSubmit={saveEdit}
-                            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-                          >
+                          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <Field label="Username">
-                              <input
-                                className="input"
-                                name="username"
-                                value={editForm.username}
-                                onChange={onEditChange}
-                              />
+                              <input className="input" name="username" value={editForm.username} onChange={onEditChange} />
                             </Field>
 
                             <Field label="Display Name">
@@ -486,12 +455,7 @@ export default function AdminUsersPage() {
                             </Field>
 
                             <Field label="Name">
-                              <input
-                                className="input"
-                                name="name"
-                                value={editForm.name}
-                                onChange={onEditChange}
-                              />
+                              <input className="input" name="name" value={editForm.name} onChange={onEditChange} />
                             </Field>
 
                             <Field label="Employee #">
@@ -504,36 +468,35 @@ export default function AdminUsersPage() {
                             </Field>
 
                             <Field label="Role">
-                              <select
-                                className="input"
-                                name="role"
-                                value={editForm.role}
-                                onChange={onEditChange}
-                              >
-                                {ROLE_OPTIONS.map((r) => (
-                                  <option key={r} value={r}>
-                                    {r}
+                              <select className="input" name="role" value={editForm.role} onChange={onEditChange}>
+                                {roleOptions.map((r) => (
+                                  <option key={r.code} value={r.code}>
+                                    {r.label}
                                   </option>
                                 ))}
                               </select>
                             </Field>
 
-                            <Field label="Shift">
-                              <input
-                                className="input"
-                                name="shift"
-                                value={editForm.shift}
-                                onChange={onEditChange}
-                              />
+                            <Field label="Shift (code)">
+                              <select className="input" name="shift" value={editForm.shift} onChange={onEditChange}>
+                                <option value="">— Select —</option>
+                                {shiftOptions.map((s) => (
+                                  <option key={s.code} value={s.code}>
+                                    {s.name || s.label || s.code}
+                                  </option>
+                                ))}
+                              </select>
                             </Field>
 
-                            <Field label="Department">
-                              <input
-                                className="input"
-                                name="department"
-                                value={editForm.department}
-                                onChange={onEditChange}
-                              />
+                            <Field label="Department (code)">
+                              <select className="input" name="department" value={editForm.department} onChange={onEditChange}>
+                                <option value="">— Select —</option>
+                                {deptOptions.map((d) => (
+                                  <option key={d.code} value={d.code}>
+                                    {d.name || d.label || d.code}
+                                  </option>
+                                ))}
+                              </select>
                             </Field>
 
                             <Field label="New Password (optional)">
@@ -561,11 +524,7 @@ export default function AdminUsersPage() {
                                 Save
                               </button>
 
-                              <button
-                                type="button"
-                                className="rounded-full border px-4 py-2 text-sm"
-                                onClick={cancelEditing}
-                              >
+                              <button type="button" className="rounded-full border px-4 py-2 text-sm" onClick={cancelEditing}>
                                 Cancel
                               </button>
                             </div>
@@ -579,7 +538,7 @@ export default function AdminUsersPage() {
 
               {activeUsers.length === 0 ? (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={6}>
+                  <td className="py-3 text-gray-500" colSpan={8}>
                     No active users.
                   </td>
                 </tr>
@@ -594,7 +553,6 @@ export default function AdminUsersPage() {
         <div className="rounded-xl border bg-white p-4">
           <h2 className="text-base font-semibold mb-3">Inactive Users</h2>
 
-          {/* Same search affects inactive list too */}
           <div className="text-sm text-gray-600 mb-2">
             {search ? (
               <>

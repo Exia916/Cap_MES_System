@@ -17,14 +17,14 @@ export async function GET() {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const res = await db.query(
-    `SELECT code, label
-     FROM emb_types
+    `SELECT id, style_color
+     FROM leather_styles
      WHERE is_active = true
-     ORDER BY sort_order ASC, code ASC`
+     ORDER BY style_color ASC`
   );
 
   return NextResponse.json({
-    types: res.rows.map((r) => r.code),
-    options: res.rows.map((r) => ({ value: r.code, label: r.label || r.code })),
+    options: res.rows.map((r) => ({ value: r.style_color, label: r.style_color })),
+    rows: res.rows,
   });
 }
