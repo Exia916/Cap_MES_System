@@ -18,13 +18,13 @@ export async function GET() {
 
   const res = await db.query(
     `SELECT code, label
-     FROM emb_types
+     FROM emb_flat_3d_options
      WHERE is_active = true
      ORDER BY sort_order ASC, code ASC`
   );
 
   return NextResponse.json({
-    types: res.rows.map((r) => r.code),
-    options: res.rows.map((r) => ({ value: r.code, label: r.label || r.code })),
+    options: res.rows.map((r) => ({ value: r.code, label: r.label ? r.label : r.code })),
+    rows: res.rows,
   });
 }

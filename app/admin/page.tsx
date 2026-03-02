@@ -58,6 +58,10 @@ export default function AdminHomePage() {
         <Link className="pill" href="/admin/users">
           → Admin Users
         </Link>
+
+        <Link className="pill" href="/admin/master-data">
+          → Master Data (Lists)
+        </Link>
       </div>
 
       <style jsx global>{`
