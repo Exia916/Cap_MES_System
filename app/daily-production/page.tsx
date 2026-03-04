@@ -358,7 +358,9 @@ export default function DailyProductionPage() {
     <div style={page}>
       <div style={headerRow}>
         <h1 style={{ margin: 0 }}>Daily Production</h1>
-        <Link href="/daily-production/add">Add Entry</Link>
+        <Link href="/daily-production/add" className="btn btn-primary">
+        + Add Entry
+        </Link>
       </div>
 
       <DataTable<SubmissionRow>

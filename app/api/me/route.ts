@@ -21,14 +21,14 @@ export async function GET(req: NextRequest) {
   const username = auth.username ?? null;
   const displayName = auth.displayName ?? auth.display_name ?? null;
 
-  // Your previous code used auth.userId as "employeeNumber". Keep compatibility.
+  // Keep compatibility with your previous "employeeNumber" mapping
   const employeeNumberRaw = auth.employeeNumber ?? auth.employee_number ?? auth.userId ?? auth.user_id ?? null;
   const employeeNumber =
     employeeNumberRaw === null || employeeNumberRaw === undefined
       ? null
       : Number.isFinite(Number(employeeNumberRaw))
-        ? Number(employeeNumberRaw)
-        : null;
+      ? Number(employeeNumberRaw)
+      : null;
 
   const role = auth.role ?? auth.userRole ?? auth.user_role ?? null;
 

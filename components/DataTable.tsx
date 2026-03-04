@@ -68,12 +68,12 @@ type Props<T> = {
 
   emptyText?: string;
 
-  // ✅ NEW: enable/disable global search + placeholder
+  // ✅ enable/disable global search + placeholder
   enableGlobalSearch?: boolean;
   globalSearchPlaceholder?: string;
 
   /**
-   * ✅ NEW: CSV export for CURRENT VIEW (what's rendered).
+   * ✅ CSV export for CURRENT VIEW (what's rendered).
    * If rowToCsv is omitted, we still export using column headers + best-effort text.
    */
   enableCsvExport?: boolean;
@@ -246,6 +246,19 @@ export default function DataTable<T>({
 
   return (
     <div style={{ marginTop: 16 }}>
+      {/* ✅ Scoped hover styling for ALL DataTables */}
+      <style>{`
+        /* Slight row highlight on hover */
+        table.dt-table tbody tr.dt-row:hover td {
+          background: rgba(17, 24, 39, 0.04); /* subtle neutral highlight */
+        }
+
+        /* Optional: show it's interactive */
+        table.dt-table tbody tr.dt-row:hover {
+          cursor: default;
+        }
+      `}</style>
+
       {/* Toolbar + result count + pager */}
       <div style={topBar}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -262,7 +275,12 @@ export default function DataTable<T>({
           ) : null}
 
           {enableCsvExport ? (
-            <button type="button" style={btnSecondary} onClick={onExportCsv} disabled={loading || filteredRows.length === 0}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onExportCsv}
+              disabled={loading || filteredRows.length === 0}
+            >
               Export CSV
             </button>
           ) : null}
@@ -270,7 +288,7 @@ export default function DataTable<T>({
           {enableGlobalSearch && globalSearch.trim() ? (
             <button
               type="button"
-              style={btnSecondary}
+              className="btn btn-secondary"
               onClick={() => setGlobalSearch("")}
               disabled={loading}
               title="Clear search"
@@ -285,7 +303,9 @@ export default function DataTable<T>({
             {loading ? (
               <>Loading…</>
             ) : enableGlobalSearch && globalSearch.trim() ? (
-              <>Showing {filteredRows.length} of {rows.length} (filtered) • {showingFrom}–{showingTo} of {totalCount}</>
+              <>
+                Showing {filteredRows.length} of {rows.length} (filtered) • {showingFrom}–{showingTo} of {totalCount}
+              </>
             ) : (
               <>Showing {showingFrom}–{showingTo} of {totalCount}</>
             )}
@@ -304,7 +324,7 @@ export default function DataTable<T>({
 
           <button
             type="button"
-            style={btnSecondary}
+            className="btn btn-secondary"
             onClick={() => onPageIndexChange(Math.max(0, pageIndex - 1))}
             disabled={loading || pageIndex <= 0}
           >
@@ -317,7 +337,7 @@ export default function DataTable<T>({
 
           <button
             type="button"
-            style={btnSecondary}
+            className="btn btn-secondary"
             onClick={() => onPageIndexChange(Math.min(totalPages - 1, pageIndex + 1))}
             disabled={loading || pageIndex >= totalPages - 1}
           >
@@ -327,7 +347,7 @@ export default function DataTable<T>({
       </div>
 
       {/* Table */}
-      <table style={table}>
+      <table style={table} className="dt-table">
         <thead>
           <tr>
             {columns.map((c) => {
@@ -335,16 +355,14 @@ export default function DataTable<T>({
               return (
                 <th
                   key={c.key}
-                  style={{ ...(isClickable ? thBtn : th), width: c.width, opacity: c.sortable && c.serverSortable === false ? 0.65 : 1 }}
+                  style={{
+                    ...(isClickable ? thBtn : th),
+                    width: c.width,
+                    opacity: c.sortable && c.serverSortable === false ? 0.65 : 1,
+                  }}
                   onClick={isClickable ? () => handleHeaderClick(c) : undefined}
                   role={isClickable ? "button" : undefined}
-                  title={
-                    c.sortable
-                      ? c.serverSortable === false
-                        ? "Sorting disabled for this column"
-                        : "Sort"
-                      : undefined
-                  }
+                  title={c.sortable ? (c.serverSortable === false ? "Sorting disabled for this column" : "Sort") : undefined}
                 >
                   {c.header}
                   {c.sortable ? sortIndicator(c.key) : null}
@@ -375,26 +393,26 @@ export default function DataTable<T>({
 
         <tbody>
           {error ? (
-            <tr>
+            <tr className="dt-row">
               <td style={td} colSpan={columns.length}>
                 <span style={{ color: "crimson" }}>{error}</span>
               </td>
             </tr>
           ) : loading ? (
-            <tr>
+            <tr className="dt-row">
               <td style={td} colSpan={columns.length}>
                 Loading…
               </td>
             </tr>
           ) : filteredRows.length === 0 ? (
-            <tr>
+            <tr className="dt-row">
               <td style={td} colSpan={columns.length}>
                 {emptyText}
               </td>
             </tr>
           ) : (
             filteredRows.map((r) => (
-              <tr key={rowKey(r)}>
+              <tr key={rowKey(r)} className="dt-row">
                 {columns.map((c) => (
                   <td key={c.key} style={td}>
                     {c.render(r)}
@@ -427,6 +445,11 @@ const topBarRight: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+/**
+ * ✅ Compatibility export:
+ * Keep this so existing pages that import { btnSecondary } DO NOT break.
+ * You can delete this export later after you migrate pages to className="btn btn-secondary".
+ */
 export const btnSecondary: React.CSSProperties = {
   padding: "6px 10px",
   border: "1px solid #ddd",

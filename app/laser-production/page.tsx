@@ -340,7 +340,9 @@ export default function LaserProductionListPage() {
     <div style={page}>
       <div style={headerRow}>
         <h1 style={{ margin: 0 }}>Laser Production</h1>
-        <Link href="/laser-production/add">Add Entry</Link>
+        <Link href="/laser-production/add" className="btn btn-primary">
+        + Add Entry
+        </Link>
       </div>
 
       <DataTable<Row>

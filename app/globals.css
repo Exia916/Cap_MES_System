@@ -3,6 +3,19 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Brand-ish neutrals (matches your existing #111827 usage) */
+  --btn-primary-bg: #111827;
+  --btn-primary-border: #111827;
+  --btn-primary-text: #ffffff;
+
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-border: #d1d5db; /* gray-300 */
+  --btn-secondary-text: #111827;
+
+  --btn-danger-bg: #b91c1c; /* red-700 */
+  --btn-danger-border: #991b1b; /* red-800 */
+  --btn-danger-text: #ffffff;
 }
 
 @theme inline {
@@ -25,24 +38,120 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* -------------------------------------------------------------------------- */
+/* NAV                                                                         */
+/* -------------------------------------------------------------------------- */
 .NavLink > a:hover {
-    background: #111827;
-    color: #ffffff !important;
+  background: #111827;
+  color: #ffffff !important;
 }
 
 .active {
-    text-decoration: none;
-    padding: 6px 10px;
-    border-radius: 6px;
-    color: rgb(0, 0, 0);
-    background-color: rgb(240, 240, 240);
-    font-weight: 600;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: rgb(0, 0, 0);
+  background-color: rgb(240, 240, 240);
+  font-weight: 600;
 }
 
 .active:hover {
-  color:#000;
+  color: #000;
 }
 
 #active:hover {
   color: #000 !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* LAYOUT                                                                       */
+/* -------------------------------------------------------------------------- */
+main:has(table) {
+  max-width: 100% !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* BUTTONS / LINKS (GLOBAL REUSABLE STYLES)                                     */
+/* -------------------------------------------------------------------------- */
+
+/* Base button style so <a> and <button> look the same */
+.btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease,
+    border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+}
+
+.btn:focus-visible {
+  outline: 2px solid rgba(17, 24, 39, 0.35);
+  outline-offset: 2px;
+}
+
+.btn[aria-disabled="true"],
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Primary (matches your btnPrimary object) */
+.btn-primary {
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-border);
+  color: var(--btn-primary-text);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+/* Secondary */
+.btn-secondary {
+  background: var(--btn-secondary-bg);
+  border-color: var(--btn-secondary-border);
+  color: var(--btn-secondary-text);
+}
+
+.btn-secondary:hover {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+/* Danger */
+.btn-danger {
+  background: var(--btn-danger-bg);
+  border-color: var(--btn-danger-border);
+  color: var(--btn-danger-text);
+}
+
+.btn-danger:hover {
+  filter: brightness(1.05);
+}
+
+/* Optional sizes */
+.btn-sm {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.btn-lg {
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
 }
