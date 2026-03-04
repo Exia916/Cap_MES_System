@@ -301,7 +301,9 @@ export default function EmblemProductionListPage() {
     <div style={page}>
       <div style={headerRow}>
         <h1 style={{ margin: 0 }}>Emblem Production</h1>
-        <Link href="/emblem-production/add">Add Entry</Link>
+        <Link href="/emblem-production/add" className="btn btn-primary">
+        + Add Entry
+        </Link>
       </div>
 
       <DataTable<Row>

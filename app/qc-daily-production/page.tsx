@@ -308,7 +308,9 @@ export default function QCDailyProductionPage() {
     <div style={page}>
       <div style={headerRow}>
         <h1 style={{ margin: 0 }}>QC Daily Production</h1>
-        <Link href="/qc-daily-production/add">Add Entry</Link>
+        <Link href="/qc-daily-production/add" className="btn btn-primary">
+        + Add Entry
+        </Link>
       </div>
 
       <DataTable<QcSubmissionRow>

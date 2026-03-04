@@ -86,9 +86,12 @@ export default function NavBar() {
   // Global search remains ADMIN/MANAGER only (your current behavior)
   const canGlobalSearch = isAdmin || role === "MANAGER";
 
-  // ✅ CMMS Repair Requests visible to: ADMIN / MANAGER / SUPERVISOR / TECH
+  // ✅ CMMS Repair Requests visible to: ADMIN / MANAGER / SUPERVISOR (techs can see the "CMMS" link but not the "Repair Requests" link)
   const canSeeRepairRequests =
-    meLoaded && (isAdmin || role === "MANAGER" || role === "SUPERVISOR" || role === "TECH");
+    meLoaded && (isAdmin || role === "MANAGER" || role === "SUPERVISOR");
+
+  // ✅ NEW: CMMS Tech/Admin page visible to: ADMIN / TECH
+  const canSeeCMMS = meLoaded && (isAdmin || role === "TECH");
 
   function runGlobalSearch() {
     const q = globalQ.trim();
@@ -111,16 +114,16 @@ export default function NavBar() {
         <NavLink href="/emblem-production" label="Emblem" pathname={pathname || ""} />
         <NavLink href="/laser-production" label="Laser" pathname={pathname || ""} />
 
-        {/* ✅ NEW: CMMS Repair Request */}
+        {/* ✅ CMMS Repair Request */}
         {canSeeRepairRequests ? (
           <NavLink href="/cmms/repair-requests" label="Repair Request" pathname={pathname || ""} />
         ) : null}
 
-        {/* Manager/Admin hubs */}
-        {meLoaded && isManagerRole ? (
-          <NavLink href="/manager" label="Manager" pathname={pathname || ""} />
-        ) : null}
+        {/* ✅ NEW: CMMS (Tech/Admin view) */}
+        {canSeeCMMS ? <NavLink href="/cmms" label="CMMS" pathname={pathname || ""} /> : null}
 
+        {/* Manager/Admin hubs */}
+        {meLoaded && isManagerRole ? <NavLink href="/manager" label="Manager" pathname={pathname || ""} /> : null}
         {meLoaded && isAdmin ? <NavLink href="/admin" label="Admin" pathname={pathname || ""} /> : null}
       </div>
 
@@ -170,15 +173,7 @@ export default function NavBar() {
   );
 }
 
-function NavLink({
-  href,
-  label,
-  pathname,
-}: {
-  href: string;
-  label: string;
-  pathname: string;
-}) {
+function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
   const active = isActive(pathname, href);
 
   return (

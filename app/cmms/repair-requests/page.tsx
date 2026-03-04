@@ -40,6 +40,57 @@ function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
+// --- Status highlighting helpers ---------------------------------------------
+
+function normStatus(s: unknown) {
+  return String(s ?? "").trim().toLowerCase();
+}
+
+function statusPillStyle(statusRaw: unknown): React.CSSProperties {
+  const s = normStatus(statusRaw);
+
+  // Defaults (neutral)
+  let bg = "rgba(148, 163, 184, 0.25)"; // slate-ish
+  let border = "rgba(148, 163, 184, 0.55)";
+  let fg = "rgb(51, 65, 85)";
+
+  if (s === "resolved") {
+    bg = "rgba(34, 197, 94, 0.18)";
+    border = "rgba(34, 197, 94, 0.55)";
+    fg = "rgb(20, 83, 45)";
+  } else if (s === "open") {
+    bg = "rgba(239, 68, 68, 0.18)";
+    border = "rgba(239, 68, 68, 0.55)";
+    fg = "rgb(127, 29, 29)";
+  } else if (s === "parts on order") {
+    bg = "rgba(249, 115, 22, 0.18)";
+    border = "rgba(249, 115, 22, 0.55)";
+    fg = "rgb(124, 45, 18)";
+  } else if (s === "in process") {
+    bg = "rgba(234, 179, 8, 0.20)";
+    border = "rgba(234, 179, 8, 0.60)";
+    fg = "rgb(113, 63, 18)";
+  } else if (s === "waiting on tech support") {
+    bg = "rgba(59, 130, 246, 0.18)";
+    border = "rgba(59, 130, 246, 0.55)";
+    fg = "rgb(30, 58, 138)";
+  }
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "2px 10px",
+    borderRadius: 999,
+    border: `1px solid ${border}`,
+    background: bg,
+    color: fg,
+    fontWeight: 600,
+    fontSize: 12,
+    lineHeight: "18px",
+    whiteSpace: "nowrap",
+  };
+}
+
 export default function RepairRequestsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -196,7 +247,6 @@ export default function RepairRequestsPage() {
         header: "DATE",
         width: 140,
         sortable: true,
-        // ✅ sort-only; no filter row input
         filterable: false,
         render: (r) => new Date(r.requestedAt).toLocaleDateString(),
       },
@@ -290,7 +340,11 @@ export default function RepairRequestsPage() {
         sortable: true,
         filterable: true,
         placeholder: "Status…",
-        render: (r) => r.status,
+        getSearchText: (r) => String(r.status ?? ""),
+        render: (r) => {
+          const label = r.status == null ? "" : String(r.status);
+          return <span style={statusPillStyle(label)}>{label}</span>;
+        },
       },
       {
         key: "edit",
@@ -393,8 +447,7 @@ export default function RepairRequestsPage() {
       <div style={headerRow}>
         <h1 style={{ margin: 0 }}>Repair Requests</h1>
 
-        {/* ✅ call-out Add Request (kept out of the filter cluster) */}
-        <Link href="/cmms/repair-requests/add" style={btnPrimary}>
+        <Link href="/cmms/repair-requests/add" className="btn btn-primary">
           + Add Request
         </Link>
       </div>
@@ -406,7 +459,6 @@ export default function RepairRequestsPage() {
         error={error}
         rowKey={(r: Row) => String(r.workOrderId)}
         emptyText="No results found."
-
         sortBy={sortBy}
         sortDir={sortDir}
         onToggleSort={onToggleSort}
@@ -420,7 +472,6 @@ export default function RepairRequestsPage() {
           setPageIndex(0);
           setPageSize(n);
         }}
-
         toolbar={toolbar}
         enableGlobalSearch={true}
         globalSearchPlaceholder="Search current view… (WO, name, dept, issue, etc.)"

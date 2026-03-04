@@ -21,16 +21,16 @@ export async function getLookup(kind: string): Promise<LookupRow[]> {
     k === "departments"
       ? "departments"
       : k === "priorities"
-      ? "priorities"
-      : k === "issues"
-      ? "issue_catalog"
-      : k === "statuses"
-      ? "statuses"
-      : k === "techs"
-      ? "techs"
-      : k === "types"
-      ? "wo_types"
-      : null;
+        ? "priorities"
+        : k === "issues"
+          ? "issue_catalog"
+          : k === "statuses"
+            ? "statuses"
+            : k === "techs"
+              ? "techs"
+              : k === "types"
+                ? "wo_types"
+                : null;
 
   if (!table) throw new Error(`Unknown lookup kind: ${kind}`);
 
@@ -56,23 +56,22 @@ export async function getAssets(departmentId?: number | null): Promise<LookupRow
 }
 
 /* -------------------------------------------------------------------------- */
-/* WORK ORDERS                                                                 */
+/* WORK ORDERS - REQUESTER LIST                                                */
 /* -------------------------------------------------------------------------- */
 
 export type WorkOrderListRow = {
   workOrderId: number;
 
-  // ✅ raw timestamp (fixes "Invalid Date" if UI expects requestedAt)
+  // raw timestamp for reliable parsing
   requestedAt: string;
 
-  // keep existing formatted columns
+  // formatted strings used by requester view
   date: string; // YYYY-MM-DD
   time: string; // HH:MM AM/PM
 
-  // ✅ name fields (fixes UI expecting requestedByName)
   requestedByName: string;
 
-  // keep existing alias (some UI uses "name")
+  // keep alias for older UI
   name: string;
 
   department: string;
@@ -88,7 +87,6 @@ export type WorkOrderListRow = {
 };
 
 export async function listWorkOrdersPaged(args: {
-  // repo supports from/to, but your API uses requestedFrom/requestedTo
   from?: string | null; // YYYY-MM-DD
   to?: string | null; // YYYY-MM-DD
   requestedFrom?: string | null; // YYYY-MM-DD
@@ -116,7 +114,6 @@ export async function listWorkOrdersPaged(args: {
   const from = args.from ?? args.requestedFrom ?? null;
   const to = args.to ?? args.requestedTo ?? null;
 
-  // Date range filter (based on requested_at date)
   if (from) {
     where.push(`wo.requested_at::date >= $${p++}::date`);
     vals.push(from);
@@ -126,7 +123,6 @@ export async function listWorkOrdersPaged(args: {
     vals.push(to);
   }
 
-  // Column filters (simple ILIKE)
   const like = (key: string, sqlExpr: string) => {
     const v = String(filters[key] ?? "").trim();
     if (!v) return;
@@ -148,25 +144,24 @@ export async function listWorkOrdersPaged(args: {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  // Whitelist sorting keys
   const sortExpr =
     sortBy === "workOrderId"
       ? "wo.work_order_id"
       : sortBy === "date" || sortBy === "requestedAt" || sortBy === "requested_at"
-      ? "wo.requested_at"
-      : sortBy === "name" || sortBy === "requestedByName"
-      ? "wo.requested_by_name"
-      : sortBy === "department"
-      ? "d.name"
-      : sortBy === "asset"
-      ? "a.name"
-      : sortBy === "priority"
-      ? "pr.name"
-      : sortBy === "commonIssue"
-      ? "ic.name"
-      : sortBy === "status"
-      ? "st.name"
-      : "wo.requested_at";
+        ? "wo.requested_at"
+        : sortBy === "name" || sortBy === "requestedByName"
+          ? "wo.requested_by_name"
+          : sortBy === "department"
+            ? "d.name"
+            : sortBy === "asset"
+              ? "a.name"
+              : sortBy === "priority"
+                ? "pr.name"
+                : sortBy === "commonIssue"
+                  ? "ic.name"
+                  : sortBy === "status"
+                    ? "st.name"
+                    : "wo.requested_at";
 
   const countSql = `
     SELECT count(*)::int AS c
@@ -183,18 +178,12 @@ export async function listWorkOrdersPaged(args: {
   const dataSql = `
     SELECT
       wo.work_order_id::int AS "workOrderId",
-
-      -- ✅ raw timestamp (lets UI parse reliably)
       wo.requested_at::text AS "requestedAt",
 
-      -- existing formatted columns
       to_char(wo.requested_at::date, 'YYYY-MM-DD') AS "date",
       to_char(wo.requested_at, 'HH:MI AM') AS "time",
 
-      -- ✅ include the key UI often expects
       coalesce(wo.requested_by_name,'')::text AS "requestedByName",
-
-      -- keep existing alias
       coalesce(wo.requested_by_name,'')::text AS "name",
 
       d.name::text AS "department",
@@ -224,12 +213,14 @@ export async function listWorkOrdersPaged(args: {
   return { rows: dataRes.rows as WorkOrderListRow[], totalCount: countRes.rows[0]?.c ?? 0 };
 }
 
+/* -------------------------------------------------------------------------- */
+/* WORK ORDERS - CREATE                                                        */
+/* -------------------------------------------------------------------------- */
+
 async function getOpenStatusId(): Promise<number> {
-  // Find "Open" (case-insensitive) in cmms.statuses
   const res = await db.query(`SELECT id::int AS id FROM ${S}.statuses WHERE lower(name) = 'open' LIMIT 1`);
   if (res.rowCount && res.rows[0]?.id) return res.rows[0].id;
 
-  // If missing, create it
   const ins = await db.query(`INSERT INTO ${S}.statuses(name) VALUES ('Open') RETURNING id::int AS id`);
   return ins.rows[0].id;
 }
@@ -289,9 +280,14 @@ export async function createWorkOrder(args: {
   return res.rows[0] as { workOrderId: number };
 }
 
+/* -------------------------------------------------------------------------- */
+/* WORK ORDERS - GET BY ID (Requester + Tech)                                  */
+/* -------------------------------------------------------------------------- */
+
 export type WorkOrderById = {
   workOrderId: number;
 
+  // requester entered (ids)
   departmentId: number;
   assetId: number;
   priorityId: number;
@@ -300,7 +296,18 @@ export type WorkOrderById = {
   operatorInitials: string | null;
   issueDialogue: string;
 
-  // tech-side fields (returned but requester must not edit)
+  // ✅ who + when
+  requestedAt: string;
+  requestedByUserId: string | null;
+  requestedByName: string;
+
+  // ✅ labels for display
+  department: string;
+  asset: string;
+  priority: string;
+  commonIssue: string;
+
+  // tech-side fields
   typeId: number | null;
   techId: number | null;
   statusId: number;
@@ -312,19 +319,37 @@ export async function getWorkOrderById(workOrderId: number): Promise<WorkOrderBy
   const sql = `
     SELECT
       wo.work_order_id::int AS "workOrderId",
+
       wo.department_id::int AS "departmentId",
       wo.asset_id::int AS "assetId",
       wo.priority_id::int AS "priorityId",
       wo.common_issue_id::int AS "commonIssueId",
+
       wo.operator_initials::text AS "operatorInitials",
       wo.issue_dialogue::text AS "issueDialogue",
 
+      -- ✅ who + when
+      wo.requested_at::text AS "requestedAt",
+      wo.requested_by_user_id::text AS "requestedByUserId",
+      coalesce(wo.requested_by_name,'')::text AS "requestedByName",
+
+      -- ✅ labels for UI display
+      d.name::text AS "department",
+      a.name::text AS "asset",
+      pr.name::text AS "priority",
+      ic.name::text AS "commonIssue",
+
+      -- tech-side
       wo.type_id::int AS "typeId",
       wo.tech_id::int AS "techId",
       wo.status_id::int AS "statusId",
       wo.down_time_recorded::text AS "downTimeRecorded",
       wo.resolution::text AS "resolution"
     FROM ${S}.work_orders wo
+    JOIN ${S}.departments d ON d.id = wo.department_id
+    JOIN ${S}.assets a ON a.id = wo.asset_id
+    JOIN ${S}.priorities pr ON pr.id = wo.priority_id
+    JOIN ${S}.issue_catalog ic ON ic.id = wo.common_issue_id
     WHERE wo.work_order_id = $1
     LIMIT 1
   `;
@@ -333,6 +358,10 @@ export async function getWorkOrderById(workOrderId: number): Promise<WorkOrderBy
   if (!res.rowCount) return null;
   return res.rows[0] as WorkOrderById;
 }
+
+/* -------------------------------------------------------------------------- */
+/* WORK ORDERS - REQUESTER PATCH (protect tech fields)                         */
+/* -------------------------------------------------------------------------- */
 
 export async function updateWorkOrderRequesterFields(args: {
   id: number;
@@ -365,6 +394,184 @@ export async function updateWorkOrderRequesterFields(args: {
     args.commonIssueId,
     args.operatorInitials ?? "",
     args.issueDialogue,
+  ]);
+
+  return res.rows[0] as { workOrderId: number };
+}
+
+/* -------------------------------------------------------------------------- */
+/* WORK ORDERS - TECH LIST + TECH PATCH                                        */
+/* -------------------------------------------------------------------------- */
+
+export type WorkOrderTechListRow = {
+  workOrderId: number;
+  requestedAt: string;
+
+  requestedByName: string;
+  department: string;
+  asset: string;
+  priority: string;
+
+  operatorInitials: string | null;
+  commonIssue: string;
+  issueDialogue: string;
+
+  type: string | null;
+  tech: string | null;
+  status: string;
+  resolution: string | null;
+  downTimeRecorded: string | null;
+};
+
+export async function listWorkOrdersTechPaged(args: {
+  requestedFrom?: string | null;
+  requestedTo?: string | null;
+  sortBy?: string;
+  sortDir?: SortDir;
+  pageIndex?: number;
+  pageSize?: number;
+  filters?: Record<string, string>;
+}): Promise<{ rows: WorkOrderTechListRow[]; totalCount: number }> {
+  const pageIndex = Math.max(0, toInt(args.pageIndex) ?? 0);
+  const pageSize = Math.min(200, Math.max(1, toInt(args.pageSize) ?? 25));
+  const offset = pageIndex * pageSize;
+
+  const sortBy = String(args.sortBy || "requestedAt");
+  const sortDir: SortDir = args.sortDir === "asc" ? "asc" : "desc";
+  const filters = args.filters || {};
+
+  const where: string[] = [];
+  const vals: any[] = [];
+  let p = 1;
+
+  if (args.requestedFrom) {
+    where.push(`wo.requested_at::date >= $${p++}::date`);
+    vals.push(args.requestedFrom);
+  }
+  if (args.requestedTo) {
+    where.push(`wo.requested_at::date <= $${p++}::date`);
+    vals.push(args.requestedTo);
+  }
+
+  const like = (key: string, sqlExpr: string) => {
+    const v = String(filters[key] ?? "").trim();
+    if (!v) return;
+    where.push(`${sqlExpr} ILIKE $${p++}`);
+    vals.push(`%${v}%`);
+  };
+
+  like("workOrderId", `wo.work_order_id::text`);
+  like("requestedByName", `coalesce(wo.requested_by_name,'')`);
+  like("department", `d.name`);
+  like("asset", `a.name`);
+  like("priority", `pr.name`);
+  like("commonIssue", `ic.name`);
+  like("issueDialogue", `coalesce(wo.issue_dialogue,'')`);
+  like("type", `coalesce(typ.name,'')`);
+  like("tech", `coalesce(t.name,'')`);
+  like("status", `st.name`);
+  like("resolution", `coalesce(wo.resolution,'')`);
+  like("downTimeRecorded", `coalesce(wo.down_time_recorded,'')`);
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const sortExpr =
+    sortBy === "workOrderId"
+      ? "wo.work_order_id"
+      : sortBy === "requestedAt"
+        ? "wo.requested_at"
+        : sortBy === "requestedByName"
+          ? "wo.requested_by_name"
+          : sortBy === "department"
+            ? "d.name"
+            : sortBy === "asset"
+              ? "a.name"
+              : sortBy === "priority"
+                ? "pr.name"
+                : sortBy === "status"
+                  ? "st.name"
+                  : "wo.requested_at";
+
+  const countSql = `
+    SELECT count(*)::int AS c
+    FROM ${S}.work_orders wo
+    JOIN ${S}.departments d ON d.id = wo.department_id
+    JOIN ${S}.assets a ON a.id = wo.asset_id
+    JOIN ${S}.priorities pr ON pr.id = wo.priority_id
+    JOIN ${S}.issue_catalog ic ON ic.id = wo.common_issue_id
+    JOIN ${S}.statuses st ON st.id = wo.status_id
+    LEFT JOIN ${S}.techs t ON t.id = wo.tech_id
+    LEFT JOIN ${S}.wo_types typ ON typ.id = wo.type_id
+    ${whereSql}
+  `;
+
+  const dataSql = `
+    SELECT
+      wo.work_order_id::int AS "workOrderId",
+      wo.requested_at::text AS "requestedAt",
+
+      coalesce(wo.requested_by_name,'')::text AS "requestedByName",
+      d.name::text AS "department",
+      a.name::text AS "asset",
+      pr.name::text AS "priority",
+
+      wo.operator_initials::text AS "operatorInitials",
+      ic.name::text AS "commonIssue",
+      wo.issue_dialogue::text AS "issueDialogue",
+
+      typ.name::text AS "type",
+      t.name::text AS "tech",
+      st.name::text AS "status",
+      wo.resolution::text AS "resolution",
+      wo.down_time_recorded::text AS "downTimeRecorded"
+    FROM ${S}.work_orders wo
+    JOIN ${S}.departments d ON d.id = wo.department_id
+    JOIN ${S}.assets a ON a.id = wo.asset_id
+    JOIN ${S}.priorities pr ON pr.id = wo.priority_id
+    JOIN ${S}.issue_catalog ic ON ic.id = wo.common_issue_id
+    JOIN ${S}.statuses st ON st.id = wo.status_id
+    LEFT JOIN ${S}.techs t ON t.id = wo.tech_id
+    LEFT JOIN ${S}.wo_types typ ON typ.id = wo.type_id
+    ${whereSql}
+    ORDER BY ${sortExpr} ${sortDir === "asc" ? "ASC" : "DESC"}, wo.work_order_id DESC
+    LIMIT $${p++} OFFSET $${p++}
+  `;
+
+  const countRes = await db.query(countSql, vals);
+  vals.push(pageSize, offset);
+  const dataRes = await db.query(dataSql, vals);
+
+  return { rows: dataRes.rows as WorkOrderTechListRow[], totalCount: countRes.rows[0]?.c ?? 0 };
+}
+
+export async function updateWorkOrderTechFields(args: {
+  id: number;
+  typeId: number | null;
+  techId: number | null;
+  statusId: number | null;
+  resolution: string | null;
+  downTimeRecorded: string | null;
+}): Promise<{ workOrderId: number }> {
+  const sql = `
+    UPDATE ${S}.work_orders
+    SET
+      type_id = $2,
+      tech_id = $3,
+      status_id = $4,
+      resolution = nullif($5,''),
+      down_time_recorded = nullif($6,''),
+      updated_at = now()
+    WHERE work_order_id = $1
+    RETURNING work_order_id::int AS "workOrderId"
+  `;
+
+  const res = await db.query(sql, [
+    args.id,
+    args.typeId,
+    args.techId,
+    args.statusId,
+    args.resolution ?? "",
+    args.downTimeRecorded ?? "",
   ]);
 
   return res.rows[0] as { workOrderId: number };
