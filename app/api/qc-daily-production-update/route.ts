@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { getQCSubmissionWithLines, replaceQCSubmission } from "@/lib/repositories/qcRepo";
+import { normalizeSalesOrder, toLegacySalesOrderNumber } from "@/lib/utils/salesOrder";
 
 function toNullableInt(value: unknown): number | null {
   const raw = (value ?? "").toString().trim();
@@ -14,7 +15,9 @@ function toNonNegIntOrNull(value: unknown, label: string): number | null {
   const raw = (value ?? "").toString().trim();
   if (!raw) return null;
   const n = Number(raw);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) throw new Error(`${label} must be a non-negative integer.`);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
   return n;
 }
 
@@ -46,7 +49,12 @@ export async function PUT(req: NextRequest) {
     const entryTs = new Date(body.entryTs ?? new Date().toISOString());
     if (Number.isNaN(entryTs.getTime())) throw new Error("entryTs is invalid.");
 
-    const salesOrder = toNullableInt(body.salesOrder);
+    const normalizedSO = normalizeSalesOrder(body.salesOrder);
+    if (!normalizedSO.isValid) {
+      throw new Error(normalizedSO.error ?? "Invalid Sales Order.");
+    }
+
+    const legacySalesOrder = toLegacySalesOrderNumber(normalizedSO.salesOrderBase);
     const notes = body.notes?.toString().trim() || null;
 
     const lines = Array.isArray(body.lines) ? body.lines : [];
@@ -57,21 +65,33 @@ export async function PUT(req: NextRequest) {
       entryTs,
       name: submission.name,
       employeeNumber: submission.employeeNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
+      legacySalesOrder,
       notes,
-      lines: lines.map((l: any, i: number) => ({
-        detailNumber: toNullableInt(l.detailNumber),
-        flatOr3d: normalizeFlatOr3d(l.flatOr3d),
-        orderQuantity: toNonNegIntOrNull(l.orderQuantity, `Line ${i + 1}: orderQuantity`),
-        inspectedQuantity: toNonNegIntOrNull(l.inspectedQuantity, `Line ${i + 1}: inspectedQuantity`),
-        rejectedQuantity: toNonNegIntOrNull(l.rejectedQuantity, `Line ${i + 1}: rejectedQuantity`),
-        quantityShipped: toNonNegIntOrNull(l.quantityShipped, `Line ${i + 1}: quantityShipped`),
-        notes: l.notes?.toString().trim() || null,
-      })),
+      lines: lines.map((l: any, i: number) => {
+        const detailNumber = toNullableInt(l.detailNumber);
+        if (detailNumber === null) {
+          throw new Error(`Line ${i + 1}: detailNumber is required (number).`);
+        }
+
+        return {
+          detailNumber,
+          flatOr3d: normalizeFlatOr3d(l.flatOr3d),
+          orderQuantity: toNonNegIntOrNull(l.orderQuantity, `Line ${i + 1}: orderQuantity`),
+          inspectedQuantity: toNonNegIntOrNull(l.inspectedQuantity, `Line ${i + 1}: inspectedQuantity`),
+          rejectedQuantity: toNonNegIntOrNull(l.rejectedQuantity, `Line ${i + 1}: rejectedQuantity`),
+          quantityShipped: toNonNegIntOrNull(l.quantityShipped, `Line ${i + 1}: quantityShipped`),
+          notes: l.notes?.toString().trim() || null,
+        };
+      }),
     });
 
     return NextResponse.json({ success: true, count: result.count }, { status: 200 });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Failed to update QC submission." }, { status: 400 });
+    return NextResponse.json(
+      { error: err?.message ?? "Failed to update QC submission." },
+      { status: 400 }
+    );
   }
 }

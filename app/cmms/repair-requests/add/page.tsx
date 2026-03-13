@@ -325,11 +325,11 @@ export default function AddRepairRequestPage() {
         </select>
         <FieldError msg={v.priority} />
 
-        <label style={label}>Operator Initials</label>
+        <label style={label}>Operator Name</label>
         <input
           value={operatorInitials}
           onChange={(e) => setOperatorInitials(e.target.value)}
-          placeholder="e.g. DT"
+          placeholder="e.g. John Doe"
           style={input}
           disabled={saving}
         />

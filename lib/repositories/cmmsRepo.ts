@@ -34,7 +34,12 @@ export async function getLookup(kind: string): Promise<LookupRow[]> {
 
   if (!table) throw new Error(`Unknown lookup kind: ${kind}`);
 
-  const sql = `SELECT id::int AS id, name::text AS name FROM ${S}.${table} ORDER BY name ASC`;
+  const sql = `
+    SELECT id::int AS id, name::text AS name
+    FROM ${S}.${table}
+    WHERE is_active = true
+    ORDER BY name ASC
+  `;
   const res = await db.query(sql);
   return res.rows as LookupRow[];
 }
@@ -45,13 +50,19 @@ export async function getAssets(departmentId?: number | null): Promise<LookupRow
       SELECT id::int AS id, name::text AS name
       FROM ${S}.assets
       WHERE department_id = $1
+        AND is_active = true
       ORDER BY name ASC
     `;
     const res = await db.query(sql, [departmentId]);
     return res.rows as LookupRow[];
   }
 
-  const res = await db.query(`SELECT id::int AS id, name::text AS name FROM ${S}.assets ORDER BY name ASC`);
+  const res = await db.query(`
+    SELECT id::int AS id, name::text AS name
+    FROM ${S}.assets
+    WHERE is_active = true
+    ORDER BY name ASC
+  `);
   return res.rows as LookupRow[];
 }
 
@@ -61,42 +72,32 @@ export async function getAssets(departmentId?: number | null): Promise<LookupRow
 
 export type WorkOrderListRow = {
   workOrderId: number;
-
-  // raw timestamp for reliable parsing
   requestedAt: string;
-
-  // formatted strings used by requester view
-  date: string; // YYYY-MM-DD
-  time: string; // HH:MM AM/PM
-
+  date: string;
+  time: string;
   requestedByName: string;
-
-  // keep alias for older UI
   name: string;
-
   department: string;
   asset: string;
   priority: string;
-
   operatorInitials: string | null;
   commonIssue: string;
   issueDialogue: string;
-
   tech: string | null;
   status: string;
 };
 
 export async function listWorkOrdersPaged(args: {
-  from?: string | null; // YYYY-MM-DD
-  to?: string | null; // YYYY-MM-DD
-  requestedFrom?: string | null; // YYYY-MM-DD
-  requestedTo?: string | null; // YYYY-MM-DD
-
+  from?: string | null;
+  to?: string | null;
+  requestedFrom?: string | null;
+  requestedTo?: string | null;
   sortBy?: string;
   sortDir?: SortDir;
   pageIndex?: number;
   pageSize?: number;
   filters?: Record<string, string>;
+  excludeResolved?: boolean;
 }): Promise<{ rows: WorkOrderListRow[]; totalCount: number }> {
   const pageIndex = Math.max(0, toInt(args.pageIndex) ?? 0);
   const pageSize = Math.min(200, Math.max(1, toInt(args.pageSize) ?? 25));
@@ -123,6 +124,10 @@ export async function listWorkOrdersPaged(args: {
     vals.push(to);
   }
 
+  if (args.excludeResolved) {
+    where.push(`lower(coalesce(st.name, '')) <> 'resolved'`);
+  }
+
   const like = (key: string, sqlExpr: string) => {
     const v = String(filters[key] ?? "").trim();
     if (!v) return;
@@ -137,6 +142,7 @@ export async function listWorkOrdersPaged(args: {
   like("asset", `a.name`);
   like("priority", `pr.name`);
   like("opInit", `coalesce(wo.operator_initials,'')`);
+  like("operatorInitials", `coalesce(wo.operator_initials,'')`);
   like("commonIssue", `ic.name`);
   like("issueDialogue", `coalesce(wo.issue_dialogue,'')`);
   like("tech", `coalesce(t.name,'')`);
@@ -218,10 +224,39 @@ export async function listWorkOrdersPaged(args: {
 /* -------------------------------------------------------------------------- */
 
 async function getOpenStatusId(): Promise<number> {
-  const res = await db.query(`SELECT id::int AS id FROM ${S}.statuses WHERE lower(name) = 'open' LIMIT 1`);
+  const res = await db.query(`
+    SELECT id::int AS id
+    FROM ${S}.statuses
+    WHERE lower(name) = 'open'
+      AND is_active = true
+    LIMIT 1
+  `);
   if (res.rowCount && res.rows[0]?.id) return res.rows[0].id;
 
-  const ins = await db.query(`INSERT INTO ${S}.statuses(name) VALUES ('Open') RETURNING id::int AS id`);
+  const inactive = await db.query(`
+    SELECT id::int AS id
+    FROM ${S}.statuses
+    WHERE lower(name) = 'open'
+    LIMIT 1
+  `);
+  if (inactive.rowCount && inactive.rows[0]?.id) {
+    const reactivated = await db.query(
+      `
+      UPDATE ${S}.statuses
+      SET is_active = true
+      WHERE id = $1
+      RETURNING id::int AS id
+    `,
+      [inactive.rows[0].id]
+    );
+    return reactivated.rows[0].id;
+  }
+
+  const ins = await db.query(`
+    INSERT INTO ${S}.statuses(name, is_active)
+    VALUES ('Open', true)
+    RETURNING id::int AS id
+  `);
   return ins.rows[0].id;
 }
 
@@ -286,37 +321,25 @@ export async function createWorkOrder(args: {
 
 export type WorkOrderById = {
   workOrderId: number;
-
-  // requester entered (ids)
   departmentId: number;
   assetId: number;
   priorityId: number;
   commonIssueId: number;
-
   operatorInitials: string | null;
   issueDialogue: string;
-
-  // who + when
   requestedAt: string;
   requestedByUserId: string | null;
   requestedByName: string;
-
-  // display labels
   department: string;
   asset: string;
   priority: string;
   commonIssue: string;
-
-  // tech-side ids
   typeId: number | null;
   techId: number | null;
   statusId: number;
-
-  // tech-side labels
   workOrderType: string | null;
   tech: string | null;
   status: string | null;
-
   downTimeRecorded: string | null;
   resolution: string | null;
 };
@@ -417,16 +440,13 @@ export async function updateWorkOrderRequesterFields(args: {
 export type WorkOrderTechListRow = {
   workOrderId: number;
   requestedAt: string;
-
   requestedByName: string;
   department: string;
   asset: string;
   priority: string;
-
   operatorInitials: string | null;
   commonIssue: string;
   issueDialogue: string;
-
   type: string | null;
   tech: string | null;
   status: string;
@@ -442,6 +462,7 @@ export async function listWorkOrdersTechPaged(args: {
   pageIndex?: number;
   pageSize?: number;
   filters?: Record<string, string>;
+  excludeResolved?: boolean;
 }): Promise<{ rows: WorkOrderTechListRow[]; totalCount: number }> {
   const pageIndex = Math.max(0, toInt(args.pageIndex) ?? 0);
   const pageSize = Math.min(200, Math.max(1, toInt(args.pageSize) ?? 25));
@@ -462,6 +483,10 @@ export async function listWorkOrdersTechPaged(args: {
   if (args.requestedTo) {
     where.push(`wo.requested_at::date <= $${p++}::date`);
     vals.push(args.requestedTo);
+  }
+
+  if (args.excludeResolved) {
+    where.push(`lower(coalesce(st.name, '')) <> 'resolved'`);
   }
 
   const like = (key: string, sqlExpr: string) => {

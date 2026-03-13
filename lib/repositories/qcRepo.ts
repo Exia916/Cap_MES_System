@@ -6,7 +6,9 @@ export type QCSubmission = {
   entryDate: string;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null;
+  salesOrder: string | null; // display value for UI compatibility
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
   notes: string | null;
   createdAt: string;
 };
@@ -20,7 +22,10 @@ export type QCLine = {
   name: string;
   employeeNumber: number;
 
-  salesOrder: number | null;
+  salesOrder: string | null; // display value for UI compatibility
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+
   detailNumber: number | null;
   flatOr3d: string | null;
 
@@ -37,10 +42,11 @@ export async function createQCSubmission(input: {
   entryTs: Date;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null;
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+  legacySalesOrder: number | null;
   notes: string | null;
 }): Promise<{ id: string }> {
-  // entry_date is GENERATED in Postgres — do NOT insert it.
   const { rows } = await db.query<{ id: string }>(
     `
     INSERT INTO public.qc_daily_submissions (
@@ -48,12 +54,22 @@ export async function createQCSubmission(input: {
       name,
       employee_number,
       sales_order,
+      sales_order_base,
+      sales_order_display,
       notes
     )
-    VALUES ($1,$2,$3,$4,$5)
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
     RETURNING id
     `,
-    [input.entryTs, input.name, input.employeeNumber, input.salesOrder, input.notes]
+    [
+      input.entryTs,
+      input.name,
+      input.employeeNumber,
+      input.legacySalesOrder,
+      input.salesOrderBase,
+      input.salesOrderDisplay,
+      input.notes,
+    ]
   );
 
   return rows[0];
@@ -64,7 +80,9 @@ export async function addQCLinesBulk(input: {
   entryTs: Date;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null; // applied to each line
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+  legacySalesOrder: number | null;
   lines: Array<{
     detailNumber: number | null;
     flatOr3d: string | null;
@@ -88,6 +106,8 @@ export async function addQCLinesBulk(input: {
         name,
         employee_number,
         sales_order,
+        sales_order_base,
+        sales_order_display,
         detail_number,
         flat_or_3d,
         order_quantity,
@@ -96,7 +116,7 @@ export async function addQCLinesBulk(input: {
         quantity_shipped,
         notes
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING id
       `,
       [
@@ -104,7 +124,9 @@ export async function addQCLinesBulk(input: {
         input.entryTs,
         input.name,
         input.employeeNumber,
-        input.salesOrder,
+        input.legacySalesOrder,
+        input.salesOrderBase,
+        input.salesOrderDisplay,
         l.detailNumber,
         l.flatOr3d,
         l.orderQuantity,
@@ -133,7 +155,9 @@ export async function getQCSubmissionWithLines(submissionId: string): Promise<{
       entry_date AS "entryDate",
       name,
       employee_number AS "employeeNumber",
-      sales_order AS "salesOrder",
+      COALESCE(sales_order_display, sales_order::text) AS "salesOrder",
+      sales_order_base AS "salesOrderBase",
+      sales_order_display AS "salesOrderDisplay",
       notes,
       created_at AS "createdAt"
     FROM public.qc_daily_submissions
@@ -155,7 +179,9 @@ export async function getQCSubmissionWithLines(submissionId: string): Promise<{
       entry_date AS "entryDate",
       name,
       employee_number AS "employeeNumber",
-      sales_order AS "salesOrder",
+      COALESCE(sales_order_display, sales_order::text) AS "salesOrder",
+      sales_order_base AS "salesOrderBase",
+      sales_order_display AS "salesOrderDisplay",
       detail_number AS "detailNumber",
       flat_or_3d AS "flatOr3d",
       order_quantity AS "orderQuantity",
@@ -179,7 +205,9 @@ export async function replaceQCSubmission(input: {
   entryTs: Date;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null;
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+  legacySalesOrder: number | null;
   notes: string | null;
   lines: Array<{
     detailNumber: number | null;
@@ -199,7 +227,9 @@ export async function replaceQCSubmission(input: {
       name = $3,
       employee_number = $4,
       sales_order = $5,
-      notes = $6
+      sales_order_base = $6,
+      sales_order_display = $7,
+      notes = $8
     WHERE id = $1
     `,
     [
@@ -207,12 +237,13 @@ export async function replaceQCSubmission(input: {
       input.entryTs,
       input.name,
       input.employeeNumber,
-      input.salesOrder,
+      input.legacySalesOrder,
+      input.salesOrderBase,
+      input.salesOrderDisplay,
       input.notes,
     ]
   );
 
-  // Replace lines
   await db.query(`DELETE FROM public.qc_daily_entries WHERE submission_id = $1`, [input.submissionId]);
 
   const inserted = await addQCLinesBulk({
@@ -220,7 +251,9 @@ export async function replaceQCSubmission(input: {
     entryTs: input.entryTs,
     name: input.name,
     employeeNumber: input.employeeNumber,
-    salesOrder: input.salesOrder,
+    salesOrderBase: input.salesOrderBase,
+    salesOrderDisplay: input.salesOrderDisplay,
+    legacySalesOrder: input.legacySalesOrder,
     lines: input.lines,
   });
 
@@ -229,25 +262,35 @@ export async function replaceQCSubmission(input: {
 
 export async function listQCSubmissionsForUserAndSO(input: {
   employeeNumber: number;
-  salesOrder: number;
-}): Promise<Array<{ id: string; entryTs: string; salesOrder: number | null; notes: string | null; lineCount: number }>> {
+  salesOrderBase: string;
+}): Promise<Array<{
+  id: string;
+  entryTs: string;
+  salesOrder: string | null;
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+  notes: string | null;
+  lineCount: number;
+}>> {
   const { rows } = await db.query(
     `
     SELECT
       s.id,
       s.entry_ts AS "entryTs",
-      s.sales_order AS "salesOrder",
+      COALESCE(s.sales_order_display, s.sales_order::text) AS "salesOrder",
+      s.sales_order_base AS "salesOrderBase",
+      s.sales_order_display AS "salesOrderDisplay",
       s.notes,
       COUNT(e.id)::int AS "lineCount"
     FROM public.qc_daily_submissions s
     LEFT JOIN public.qc_daily_entries e
       ON e.submission_id = s.id
     WHERE s.employee_number = $1
-      AND s.sales_order = $2
+      AND COALESCE(s.sales_order_base, s.sales_order::text) = $2
     GROUP BY s.id
     ORDER BY s.entry_ts DESC
     `,
-    [input.employeeNumber, input.salesOrder]
+    [input.employeeNumber, input.salesOrderBase]
   );
 
   return rows as any;
@@ -255,13 +298,15 @@ export async function listQCSubmissionsForUserAndSO(input: {
 
 export async function listQCSubmissionSummariesByEntryDate(input: {
   entryDate: string;
-  employeeNumber?: number; // if non-admin
+  employeeNumber?: number;
 }): Promise<Array<{
   id: string;
   entryTs: string;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null;
+  salesOrder: string | null;
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
   notes: string | null;
   lineCount: number;
 }>> {
@@ -280,7 +325,9 @@ export async function listQCSubmissionSummariesByEntryDate(input: {
       s.entry_ts AS "entryTs",
       s.name,
       s.employee_number AS "employeeNumber",
-      s.sales_order AS "salesOrder",
+      COALESCE(s.sales_order_display, s.sales_order::text) AS "salesOrder",
+      s.sales_order_base AS "salesOrderBase",
+      s.sales_order_display AS "salesOrderDisplay",
       s.notes,
       COUNT(e.id)::int AS "lineCount"
     FROM public.qc_daily_submissions s
@@ -296,34 +343,30 @@ export async function listQCSubmissionSummariesByEntryDate(input: {
   return rows as any;
 }
 
-// ------------------------------
-// Range + filters + paging list
-// ------------------------------
-
 export type QCSubmissionSummaryRow = {
   id: string;
   entryTs: string;
   entryDate: string;
   name: string;
   employeeNumber: number;
-  salesOrder: number | null;
+  salesOrder: string | null;
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
   notes: string | null;
   createdAt: string;
   lineCount: number;
 };
 
 export type ListQCSubmissionSummariesArgs = {
-  entryDateFrom: string; // YYYY-MM-DD
-  entryDateTo: string;   // YYYY-MM-DD
-  employeeNumber?: number; // non-admin restriction
+  entryDateFrom: string;
+  entryDateTo: string;
+  employeeNumber?: number;
 
-  // filters
-  name?: string;                  // contains
-  notes?: string;                 // contains (submission notes OR any line notes)
-  salesOrderStartsWith?: string;  // starts-with on submission sales_order
-  detailStartsWith?: string;      // starts-with on ANY line.detail_number
+  name?: string;
+  notes?: string;
+  salesOrderStartsWith?: string;
+  detailStartsWith?: string;
 
-  // sort + paging
   sortBy?: "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount";
   sortDir?: "asc" | "desc";
   limit: number;
@@ -349,7 +392,12 @@ export async function listQCSubmissionSummariesRange(
 
   if (input.salesOrderStartsWith?.trim()) {
     params.push(`${input.salesOrderStartsWith.trim()}%`);
-    where += ` AND COALESCE(s.sales_order::text,'') LIKE $${params.length}`;
+    where += `
+      AND (
+        COALESCE(s.sales_order_base, s.sales_order::text, '') LIKE $${params.length}
+        OR COALESCE(s.sales_order_display, s.sales_order::text, '') LIKE $${params.length}
+      )
+    `;
   }
 
   if (input.detailStartsWith?.trim()) {
@@ -382,7 +430,6 @@ export async function listQCSubmissionSummariesRange(
   const sortBy = input.sortBy ?? "entryTs";
   const sortDir = input.sortDir === "asc" ? "ASC" : "DESC";
 
-  // ✅ IMPORTANT: ORDER BY must reference "b" columns (outer query), NOT s/e
   const ORDER_MAP_B: Record<string, string> = {
     entryTs: `b."entryTs"`,
     entryDate: `b."entryDate"`,
@@ -408,7 +455,9 @@ export async function listQCSubmissionSummariesRange(
         s.entry_date AS "entryDate",
         s.name AS "name",
         s.employee_number AS "employeeNumber",
-        s.sales_order AS "salesOrder",
+        COALESCE(s.sales_order_display, s.sales_order::text) AS "salesOrder",
+        s.sales_order_base AS "salesOrderBase",
+        s.sales_order_display AS "salesOrderDisplay",
         s.notes AS "notes",
         s.created_at AS "createdAt",
         COUNT(e.id)::int AS "lineCount"

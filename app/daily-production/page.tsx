@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 function ymdChicago(d: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -18,7 +18,6 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// ✅ Shift Date display helper: shows date only, never time
 function fmtShiftDateOnly(v: any): string {
   if (v === null || v === undefined) return "";
   const s = String(v);
@@ -31,17 +30,14 @@ function fmtShiftDateOnly(v: any): string {
   return ymdChicago(dt);
 }
 
-// ✅ remove commas helper (SO, employee #, etc.)
 function stripCommas(v: any) {
   const s = v === null || v === undefined ? "" : String(v);
   return s.replace(/,/g, "");
 }
 
-// ✅ show blank for null/undefined (instead of 0)
-function fmtMaybeNumber(v: any): string {
+function fmtMaybeText(v: any): string {
   if (v === null || v === undefined || v === "") return "";
-  const s = stripCommas(v);
-  return s;
+  return stripCommas(v);
 }
 
 function addDays(d: Date, days: number): Date {
@@ -91,7 +87,7 @@ type SubmissionRow = {
   shiftDate?: string;
   name: string;
   machineNumber: number | null;
-  salesOrder: number | null;
+  salesOrder: string | null;
   lineCount: number;
   totalStitches: number | null;
   totalPieces: number | null;
@@ -215,15 +211,10 @@ export default function DailyProductionPage() {
     }
   }
 
-  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
-
-    // reset the date range back to default (Last 30)
     setShiftDateFrom(def.from);
     setShiftDateTo(def.to);
-
-    // optional but usually expected for "Clear All"
     setSortBy("entryTs");
     setSortDir("desc");
     setPageIndex(0);
@@ -277,8 +268,8 @@ export default function DailyProductionPage() {
         sortable: true,
         filterable: true,
         placeholder: "Machine (starts with)",
-        render: (r) => fmtMaybeNumber(r.machineNumber),
-        getSearchText: (r) => fmtMaybeNumber(r.machineNumber),
+        render: (r) => fmtMaybeText(r.machineNumber),
+        getSearchText: (r) => fmtMaybeText(r.machineNumber),
       },
       {
         key: "salesOrder",
@@ -286,8 +277,8 @@ export default function DailyProductionPage() {
         sortable: true,
         filterable: true,
         placeholder: "Sales Order (starts with)",
-        render: (r) => fmtMaybeNumber(r.salesOrder),
-        getSearchText: (r) => fmtMaybeNumber(r.salesOrder),
+        render: (r) => fmtMaybeText(r.salesOrder),
+        getSearchText: (r) => fmtMaybeText(r.salesOrder),
       },
       {
         key: "lineCount",
@@ -300,15 +291,15 @@ export default function DailyProductionPage() {
         key: "totalStitches",
         header: "TOTAL STITCHES",
         sortable: true,
-        render: (r) => fmtMaybeNumber(r.totalStitches),
-        getSearchText: (r) => fmtMaybeNumber(r.totalStitches),
+        render: (r) => fmtMaybeText(r.totalStitches),
+        getSearchText: (r) => fmtMaybeText(r.totalStitches),
       },
       {
         key: "totalPieces",
         header: "TOTAL PIECES",
         sortable: true,
-        render: (r) => fmtMaybeNumber(r.totalPieces),
-        getSearchText: (r) => fmtMaybeNumber(r.totalPieces),
+        render: (r) => fmtMaybeText(r.totalPieces),
+        getSearchText: (r) => fmtMaybeText(r.totalPieces),
       },
       {
         key: "notes",
@@ -319,9 +310,14 @@ export default function DailyProductionPage() {
         getSearchText: (r) => r.notes ?? "",
       },
       {
+        key: "view",
+        header: "",
+        render: (r) => <Link href={`/daily-production/${r.id}`} className="btn btn-secondary btn-sm">View</Link>,
+      },
+      {
         key: "edit",
         header: "",
-        render: (r) => <Link href={`/daily-production/${r.id}/edit`}>Edit</Link>,
+        render: (r) => <Link href={`/daily-production/${r.id}/edit`} className="btn btn-primary btn-sm">Edit</Link>,
       },
     ],
     [shiftDateFrom, shiftDateTo]
@@ -329,37 +325,36 @@ export default function DailyProductionPage() {
 
   const toolbar = (
     <>
-      <button type="button" onClick={clearFilters} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={clearFilters} className="btn btn-secondary" disabled={loading}>
         Clear Filters
       </button>
-
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} className="btn btn-secondary" disabled={loading}>
         Last 7
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} className="btn btn-secondary" disabled={loading}>
         Last 30
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} className="btn btn-secondary" disabled={loading}>
         Last 90
       </button>
-      <button type="button" onClick={() => applyRange(getRangeThisMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeThisMonth())} className="btn btn-secondary" disabled={loading}>
         This Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangePrevMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangePrevMonth())} className="btn btn-secondary" disabled={loading}>
         Prev Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangeToday())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeToday())} className="btn btn-secondary" disabled={loading}>
         Today Only
       </button>
     </>
   );
 
   return (
-    <div style={page}>
-      <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>Daily Production</h1>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">Daily Production</h1>
         <Link href="/daily-production/add" className="btn btn-primary">
-        + Add Entry
+          + Add Entry
         </Link>
       </div>
 
@@ -385,32 +380,22 @@ export default function DailyProductionPage() {
         csvFilename="daily-production.csv"
         rowToCsv={(r) => ({
           "Shift Date": fmtShiftDateOnly(r.shiftDate),
-          "Name": r.name ?? "",
-          "Machine": stripCommas(r.machineNumber ?? ""),
-          "SO": stripCommas(r.salesOrder ?? ""),
-          "Lines": r.lineCount ?? 0,
+          Name: r.name ?? "",
+          Machine: stripCommas(r.machineNumber ?? ""),
+          SO: stripCommas(r.salesOrder ?? ""),
+          Lines: r.lineCount ?? 0,
           "Total Stitches": r.totalStitches ?? "",
           "Total Pieces": r.totalPieces ?? "",
-          "Notes": r.notes ?? "",
+          Notes: r.notes ?? "",
         })}
       />
 
-      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+      <div className="text-soft" style={{ marginTop: 8, fontSize: 12 }}>
         Note: This list shows submissions created after the new submission system was enabled.
       </div>
     </div>
   );
 }
-
-/* ---------- Styles ---------- */
-
-const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
-
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
 
 const filterInput: React.CSSProperties = {
   width: "100%",

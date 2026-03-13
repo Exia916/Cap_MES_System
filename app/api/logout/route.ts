@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
-import { COOKIE_NAME } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { COOKIE_NAME, getAuthFromRequest } from "@/lib/auth";
+import { logError, logSecurityEvent } from "@/lib/logging/logger";
 
-function clearAuthCookie() {
+function buildLogoutResponse() {
   const response = NextResponse.json({ success: true });
 
   response.cookies.set(COOKIE_NAME, "", {
@@ -15,10 +16,40 @@ function clearAuthCookie() {
   return response;
 }
 
-export async function GET() {
-  return clearAuthCookie();
+async function handleLogout(req: NextRequest) {
+  try {
+    const auth = getAuthFromRequest(req);
+
+    await logSecurityEvent({
+      req,
+      auth,
+      category: "AUTH",
+      module: "AUTH",
+      eventType: "LOGOUT",
+      message: "User logged out",
+    });
+
+    return buildLogoutResponse();
+  } catch (error) {
+    await logError({
+      req,
+      category: "AUTH",
+      module: "AUTH",
+      eventType: "LOGOUT_ERROR",
+      message: "Logout route failed unexpectedly",
+      error,
+    });
+
+    console.error("Logout error:", error);
+
+    return buildLogoutResponse();
+  }
 }
 
-export async function POST() {
-  return clearAuthCookie();
+export async function GET(req: NextRequest) {
+  return handleLogout(req);
+}
+
+export async function POST(req: NextRequest) {
+  return handleLogout(req);
 }

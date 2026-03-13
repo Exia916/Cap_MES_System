@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 function ymdChicago(d: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -81,6 +81,7 @@ type Row = {
   entryTs: string;
   entryDate: string;
   salesOrder: string | null;
+  detailNumbers: string | null;
   name: string;
   employeeNumber: number | null;
   lineCount: number;
@@ -88,15 +89,27 @@ type Row = {
   notes: string | null;
 };
 
-type SortBy = "entryTs" | "entryDate" | "name" | "salesOrder" | "lineCount" | "totalPieces";
+type SortBy =
+  | "entryTs"
+  | "entryDate"
+  | "name"
+  | "salesOrder"
+  | "lineCount"
+  | "totalPieces";
 
 type Filters = {
   salesOrder: string;
+  detailNumber: string;
   name: string;
   notes: string;
 };
 
-const DEFAULT_FILTERS: Filters = { salesOrder: "", name: "", notes: "" };
+const DEFAULT_FILTERS: Filters = {
+  salesOrder: "",
+  detailNumber: "",
+  name: "",
+  notes: "",
+};
 
 export default function EmblemProductionListPage() {
   const def = useMemo(() => getRangeLastNDays(30), []);
@@ -141,6 +154,7 @@ export default function EmblemProductionListPage() {
     sp.set("offset", String(offset));
 
     if (debouncedFilters.salesOrder.trim()) sp.set("salesOrder", debouncedFilters.salesOrder.trim());
+    if (debouncedFilters.detailNumber.trim()) sp.set("detailNumber", debouncedFilters.detailNumber.trim());
     if (debouncedFilters.name.trim()) sp.set("name", debouncedFilters.name.trim());
     if (debouncedFilters.notes.trim()) sp.set("notes", debouncedFilters.notes.trim());
 
@@ -190,15 +204,10 @@ export default function EmblemProductionListPage() {
     }
   }
 
-  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
-
-    // reset the date range back to default (Last 30)
     setEntryDateFrom(def.from);
     setEntryDateTo(def.to);
-
-    // optional but usually expected for "Clear All"
     setSortBy("entryTs");
     setSortDir("desc");
     setPageIndex(0);
@@ -217,9 +226,19 @@ export default function EmblemProductionListPage() {
         sortable: true,
         filterRender: (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input style={filterInput} type="date" value={entryDateFrom} onChange={(e) => setEntryDateFrom(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateFrom}
+              onChange={(e) => setEntryDateFrom(e.target.value)}
+            />
             <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
-            <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateTo}
+              onChange={(e) => setEntryDateTo(e.target.value)}
+            />
           </div>
         ),
         render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
@@ -233,6 +252,16 @@ export default function EmblemProductionListPage() {
         placeholder: "SO (starts with)",
         render: (r) => stripCommas(r.salesOrder ?? ""),
         getSearchText: (r) => stripCommas(r.salesOrder ?? ""),
+      },
+      {
+        key: "detailNumber",
+        header: "DETAIL #",
+        sortable: false,
+        serverSortable: false,
+        filterable: true,
+        placeholder: "Detail #",
+        render: (r) => r.detailNumbers ?? "",
+        getSearchText: (r) => r.detailNumbers ?? "",
       },
       {
         key: "name",
@@ -265,44 +294,60 @@ export default function EmblemProductionListPage() {
         render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
         getSearchText: (r) => r.notes ?? "",
       },
-      { key: "edit", header: "", render: (r) => <Link href={`/emblem-production/${r.id}/edit`}>Edit</Link> },
+      {
+        key: "view",
+        header: "",
+        render: (r) => (
+          <Link href={`/emblem-production/${r.id}`} className="btn btn-secondary btn-sm">
+            View
+          </Link>
+        ),
+      },
+      {
+        key: "edit",
+        header: "",
+        render: (r) => (
+          <Link href={`/emblem-production/${r.id}/edit`} className="btn btn-primary btn-sm">
+            Edit
+          </Link>
+        ),
+      },
     ],
     [entryDateFrom, entryDateTo]
   );
 
   const toolbar = (
     <>
-      <button type="button" onClick={clearFilters} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={clearFilters} className="btn btn-secondary" disabled={loading}>
         Clear Filters
       </button>
-
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} className="btn btn-secondary" disabled={loading}>
         Last 7
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} className="btn btn-secondary" disabled={loading}>
         Last 30
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} className="btn btn-secondary" disabled={loading}>
         Last 90
       </button>
-      <button type="button" onClick={() => applyRange(getRangeThisMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeThisMonth())} className="btn btn-secondary" disabled={loading}>
         This Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangePrevMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangePrevMonth())} className="btn btn-secondary" disabled={loading}>
         Prev Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangeToday())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeToday())} className="btn btn-secondary" disabled={loading}>
         Today Only
       </button>
     </>
   );
 
   return (
-    <div style={page}>
-      <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>Emblem Production</h1>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">Emblem Production</h1>
         <Link href="/emblem-production/add" className="btn btn-primary">
-        + Add Entry
+          + Add Entry
         </Link>
       </div>
 
@@ -324,11 +369,12 @@ export default function EmblemProductionListPage() {
         toolbar={toolbar}
         rowKey={(r) => r.id}
         emptyText="No emblem submissions found."
-        globalSearchPlaceholder="Search current view… (SO, name, notes)"
+        globalSearchPlaceholder="Search current view… (SO, detail, name, notes)"
         csvFilename="emblem-production.csv"
         rowToCsv={(r) => ({
           "Entry Date": fmtDateOnly(r.entryDate ?? r.entryTs),
           "SO": stripCommas(r.salesOrder ?? ""),
+          "Detail #": r.detailNumbers ?? "",
           "Name": r.name ?? "",
           "Lines": r.lineCount ?? 0,
           "Total Pieces": r.totalPieces ?? 0,
@@ -338,14 +384,6 @@ export default function EmblemProductionListPage() {
     </div>
   );
 }
-
-const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
-
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
 
 const filterInput: React.CSSProperties = {
   width: "100%",

@@ -32,7 +32,14 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-const ALLOWED_SORT = new Set(["entryTs", "entryDate", "name", "salesOrder", "leatherStyleColor", "piecesCut"]);
+const ALLOWED_SORT = new Set([
+  "entryTs",
+  "entryDate",
+  "name",
+  "salesOrder",
+  "leatherStyleColor",
+  "piecesCut",
+]);
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,7 +52,6 @@ export async function GET(req: NextRequest) {
 
     const sp = req.nextUrl.searchParams;
 
-    // ----- Date range default last 30 days
     const rawFrom = sp.get("entryDateFrom")?.trim() ?? "";
     const rawTo = sp.get("entryDateTo")?.trim() ?? "";
 
@@ -58,14 +64,15 @@ export async function GET(req: NextRequest) {
     const entryDateTo = rawTo || today;
 
     if (!isValidDate(entryDateFrom) || !isValidDate(entryDateTo)) {
-      return NextResponse.json<Resp>({ error: "Missing or invalid entryDateFrom/entryDateTo (expected YYYY-MM-DD)" }, { status: 400 });
+      return NextResponse.json<Resp>(
+        { error: "Missing or invalid entryDateFrom/entryDateTo (expected YYYY-MM-DD)" },
+        { status: 400 }
+      );
     }
 
-    // ----- Paging
     const limit = clampInt(sp.get("limit"), 25, 1, 200);
     const offset = clampInt(sp.get("offset"), 0, 0, 1_000_000);
 
-    // ----- Sort
     const sortByRaw = sp.get("sortBy")?.trim() || "entryTs";
     const sortBy = (ALLOWED_SORT.has(sortByRaw) ? sortByRaw : "entryTs") as
       | "entryTs"
@@ -77,7 +84,6 @@ export async function GET(req: NextRequest) {
 
     const sortDir = (sp.get("sortDir")?.trim() || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
 
-    // ----- Filters
     const name = sp.get("name")?.trim() ?? "";
     const notes = sp.get("notes")?.trim() ?? "";
     const salesOrderStartsWith = sp.get("salesOrder")?.trim() ?? "";
@@ -86,8 +92,7 @@ export async function GET(req: NextRequest) {
     const params: any[] = [entryDateFrom, entryDateTo];
     let where = `l.entry_date BETWEEN $1::date AND $2::date`;
 
-    // Non-admin restriction: only your own entries
-    if (payload.role !== "ADMIN") {
+    if (String(payload.role || "").toUpperCase() !== "ADMIN") {
       if (payload.employeeNumber) {
         params.push(Number(payload.employeeNumber));
         where += ` AND l.employee_number = $${params.length}::int`;
@@ -129,7 +134,6 @@ export async function GET(req: NextRequest) {
     const orderExpr = ORDER_MAP[sortBy] ?? ORDER_MAP.entryTs;
     const orderBySql = `${orderExpr} ${sortDir}, l.id DESC`;
 
-    // count query
     const countRes = await db.query<{ total: number }>(
       `
       SELECT COUNT(*)::int AS total
@@ -140,7 +144,6 @@ export async function GET(req: NextRequest) {
     );
     const totalCount = countRes.rows[0]?.total ?? 0;
 
-    // page query
     params.push(limit);
     const limitParam = `$${params.length}`;
     params.push(offset);

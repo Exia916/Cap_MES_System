@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
-import { addEmbroideryEntriesBulk, createEmbroiderySubmission } from "@/lib/repositories/embroideryRepo";
 import { getAuthFromRequest } from "@/lib/auth";
-
-export const runtime = "nodejs";
+import { createEmbroiderySubmission, addEmbroideryEntriesBulk } from "@/lib/repositories/embroideryRepo";
+import { normalizeSalesOrder, toLegacySalesOrderNumber } from "@/lib/utils/salesOrder";
 
 type LineBody = {
   detailNumber: string;
   embroideryLocation: string;
   stitches: string;
   pieces: string;
-
-  // ✅ only used when Annex is true
   jobberSamplesRan?: string | null;
-
-  is3d: boolean;
-  isKnit: boolean;
-  detailComplete: boolean;
+  is3d?: boolean;
+  isKnit?: boolean;
+  detailComplete?: boolean;
   notes?: string | null;
 };
 
@@ -23,10 +19,8 @@ type Body = {
   entryTs: string;
   salesOrder?: string | null;
   machineNumber?: string | null;
-  notes?: string | null; // header notes
-
+  notes?: string | null;
   annex?: boolean;
-
   lines: LineBody[];
 };
 
@@ -38,19 +32,13 @@ function toNullableInt(value: unknown): number | null {
   return n;
 }
 
-function toNonNegIntOrNull(value: unknown, fieldLabel: string): number | null {
+function toNonNegIntOrNull(value: unknown, label: string): number | null {
   const raw = (value ?? "").toString().trim();
   if (!raw) return null;
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
-    throw new Error(`${fieldLabel} must be a non-negative integer.`);
+    throw new Error(`${label} must be a non-negative integer.`);
   }
-  return n;
-}
-
-function toNonNegIntRequired(value: unknown, fieldLabel: string): number {
-  const n = toNonNegIntOrNull(value, fieldLabel);
-  if (n === null) throw new Error(`${fieldLabel} is required.`);
   return n;
 }
 
@@ -61,7 +49,7 @@ export async function POST(req: Request) {
 
     const name = auth.displayName ?? auth.username ?? "";
     const employeeNumber = Number(auth.employeeNumber);
-    const shift = auth.shift ?? "";
+    const shift = String(auth.shift ?? "").trim();
 
     if (!name) throw new Error("Authenticated user name not found.");
     if (!Number.isFinite(employeeNumber)) throw new Error("Authenticated employeeNumber not found.");
@@ -77,67 +65,73 @@ export async function POST(req: Request) {
     const entryTs = new Date(body.entryTs);
     if (Number.isNaN(entryTs.getTime())) throw new Error("entryTs is invalid.");
 
-    const machineNumber = toNullableInt(body.machineNumber);
-    const salesOrder = toNullableInt(body.salesOrder);
-    const headerNotes = body.notes?.toString().trim() || null;
+    const normalizedSO = normalizeSalesOrder(body.salesOrder);
+    if (!normalizedSO.isValid) {
+      throw new Error(normalizedSO.error ?? "Invalid Sales Order.");
+    }
 
+    const legacySalesOrder = toLegacySalesOrderNumber(normalizedSO.salesOrderBase);
+    const machineNumber = toNullableInt(body.machineNumber);
+    const headerNotes = body.notes?.toString().trim() || null;
     const annex = !!body.annex;
 
-    const lines = body.lines.map((line, idx) => {
-      const detailNumber = toNullableInt(line.detailNumber);
-      const embroideryLocation = (line.embroideryLocation ?? "").toString().trim();
-
-      if (detailNumber === null) throw new Error(`Line ${idx + 1}: detailNumber is required (number).`);
-      if (!embroideryLocation) throw new Error(`Line ${idx + 1}: embroideryLocation is required.`);
-
-      return {
-        detailNumber,
-        embroideryLocation,
-        stitches: toNonNegIntOrNull(line.stitches, `Line ${idx + 1}: stitches`),
-        pieces: toNonNegIntOrNull(line.pieces, `Line ${idx + 1}: pieces`),
-
-        // ✅ Required only when annex is true
-        jobberSamplesRan: annex
-          ? toNonNegIntRequired(line.jobberSamplesRan, `Line ${idx + 1}: Jobber Samples Ran`)
-          : null,
-
-        is3d: !!line.is3d,
-        isKnit: !!line.isKnit,
-        detailComplete: !!line.detailComplete,
-        notes: line.notes?.toString().trim() || null,
-      };
-    });
-
-    const submission = await createEmbroiderySubmission({
+    const sub = await createEmbroiderySubmission({
       entryTs,
       name,
       employeeNumber,
       shift,
       machineNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
+      legacySalesOrder,
       annex,
       notes: headerNotes,
     });
 
     const inserted = await addEmbroideryEntriesBulk({
-      submissionId: submission.id,
+      submissionId: sub.id,
       entryTs,
       name,
       employeeNumber,
       shift,
       machineNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
+      legacySalesOrder,
       annex,
-      lines,
+      lines: body.lines.map((l, i) => {
+        const detailNumber = toNullableInt(l.detailNumber);
+        if (detailNumber === null) throw new Error(`Line ${i + 1}: detailNumber is required.`);
+
+        const embroideryLocation = String(l.embroideryLocation ?? "").trim();
+        if (!embroideryLocation) throw new Error(`Line ${i + 1}: embroideryLocation is required.`);
+
+        return {
+          detailNumber,
+          embroideryLocation,
+          stitches: toNonNegIntOrNull(l.stitches, `Line ${i + 1}: stitches`),
+          pieces: toNonNegIntOrNull(l.pieces, `Line ${i + 1}: pieces`),
+          jobberSamplesRan: annex
+            ? toNonNegIntOrNull(l.jobberSamplesRan, `Line ${i + 1}: jobberSamplesRan`)
+            : null,
+          is3d: !!l.is3d,
+          isKnit: !!l.isKnit,
+          detailComplete: !!l.detailComplete,
+          notes: l.notes?.toString().trim() || null,
+        };
+      }),
     });
 
     return NextResponse.json({
       success: true,
+      submissionId: sub.id,
       count: inserted.length,
-      ids: inserted.map((r) => r.id),
-      submissionId: submission.id,
+      ids: inserted.map((x) => x.id),
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Failed to add daily production entry." }, { status: 400 });
+    return NextResponse.json(
+      { error: err?.message ?? "Failed to add submission." },
+      { status: 400 }
+    );
   }
 }

@@ -1,4 +1,3 @@
-// app/admin/master-data/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -6,15 +5,17 @@ import { MASTER_UI, MASTER_KEYS } from "./registry";
 
 export default function MasterDataHomePage() {
   return (
-    <div className="p-6 space-y-6">
-      <div className="rounded-xl border bg-white p-4">
-        <h1 className="text-xl font-semibold">Admin – Master Data</h1>
-        <p className="text-sm text-gray-600">
-          Edit dropdown/list values used throughout the app (departments, shifts, roles, etc.).
-        </p>
+    <div className="page-shell section-stack">
+      <div className="card">
+        <div className="page-header-title-wrap">
+          <h1 className="page-title">Admin – Master Data</h1>
+          <p className="page-subtitle">
+            Edit dropdown/list values used throughout the app (departments, shifts, roles, etc.).
+          </p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="master-grid">
         {MASTER_KEYS.map((key) => {
           const cfg = MASTER_UI[key];
 
@@ -22,18 +23,16 @@ export default function MasterDataHomePage() {
             <Link
               key={key}
               href={`/admin/master-data/${key}`}
-              className="rounded-xl border bg-white p-4 hover:bg-gray-50 transition"
+              className="master-card-link"
             >
-              <div className="font-semibold text-base mb-1">
-                {cfg.title}
-              </div>
+              <div className="master-card-title">{cfg.title}</div>
+
               {cfg.description ? (
-                <div className="text-sm text-gray-600 mb-2">
-                  {cfg.description}
-                </div>
+                <div className="master-card-description">{cfg.description}</div>
               ) : null}
-              <div className="text-xs text-gray-500">
-                Key: <span className="font-mono">{key}</span>
+
+              <div className="master-card-meta">
+                Key: <span className="master-card-key">{key}</span>
               </div>
             </Link>
           );

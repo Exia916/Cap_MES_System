@@ -5,31 +5,23 @@ import React, { useMemo, useState } from "react";
 export type SortDir = "asc" | "desc";
 
 export type Column<T> = {
-  key: string; // used for sortBy + filter name
+  key: string;
   header: string;
-
-  // clicking the header should attempt sorting
   sortable?: boolean;
 
   /**
-   * ✅ If true (default), clicking sortable header calls onToggleSort (server sort).
-   * If false, we still show it (and can allow client sort later), but we will NOT call onToggleSort.
-   * Use this for derived/client-only columns like Total Pieces Per Day.
+   * If true (default), clicking sortable header calls onToggleSort (server sort).
+   * If false, header is shown as sortable-looking but does not call server sorting.
    */
   serverSortable?: boolean;
 
-  // If true, shows a text filter input in the filter row for this column
   filterable?: boolean;
   placeholder?: string;
-
-  // Optional custom filter cell (used for date range)
   filterRender?: React.ReactNode;
-
   width?: number | string;
 
   /**
-   * Optional: text extractor used by global search.
-   * If omitted, DataTable will try to derive text from render output (best-effort).
+   * Optional text extractor used by global search.
    */
   getSearchText?: (row: T) => string;
 
@@ -43,42 +35,33 @@ type Props<T> = {
   loading?: boolean;
   error?: string | null;
 
-  // sort (server-driven)
   sortBy: string;
   sortDir: SortDir;
   onToggleSort: (key: string) => void;
 
-  // filters (server-driven)
   filters: Record<string, string>;
   onFilterChange: (key: string, value: string) => void;
 
-  // pagination + count (server-driven)
   totalCount: number;
-  pageIndex: number; // 0-based
+  pageIndex: number;
   pageSize: number;
   pageSizes?: number[];
   onPageIndexChange: (next: number) => void;
   onPageSizeChange: (next: number) => void;
 
-  // optional toolbar actions (e.g. clear filters, presets)
   toolbar?: React.ReactNode;
 
-  // row key
   rowKey: (row: T) => string;
-
   emptyText?: string;
 
-  // ✅ enable/disable global search + placeholder
   enableGlobalSearch?: boolean;
   globalSearchPlaceholder?: string;
 
-  /**
-   * ✅ CSV export for CURRENT VIEW (what's rendered).
-   * If rowToCsv is omitted, we still export using column headers + best-effort text.
-   */
   enableCsvExport?: boolean;
-  csvFilename?: string; // e.g. "laser-production.csv"
+  csvFilename?: string;
   rowToCsv?: (row: T) => Record<string, string | number | null | undefined>;
+
+  renderExpandedRow?: (row: T) => React.ReactNode;
 };
 
 function defaultFilename() {
@@ -91,23 +74,22 @@ function defaultFilename() {
 
 function toPlainText(node: React.ReactNode): string {
   if (node === null || node === undefined) return "";
-  if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") return String(node);
+  if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
+    return String(node);
+  }
 
   if (Array.isArray(node)) return node.map(toPlainText).join(" ");
 
-  // React element
   if (React.isValidElement(node)) {
-    // @ts-ignore
-    const children = node.props?.children;
+    const children = (node as any).props?.children;
     return toPlainText(children);
   }
 
   return "";
 }
 
-function csvEscape(v: any): string {
+function csvEscape(v: unknown): string {
   const s = v === null || v === undefined ? "" : String(v);
-  // Escape double-quotes; wrap if contains commas, quotes, or newlines
   const needsWrap = /[",\n\r]/.test(s);
   const escaped = s.replace(/"/g, '""');
   return needsWrap ? `"${escaped}"` : escaped;
@@ -117,8 +99,8 @@ function downloadCsv(filename: string, headers: string[], rows: string[][]) {
   const lines: string[] = [];
   lines.push(headers.map(csvEscape).join(","));
   for (const r of rows) lines.push(r.map(csvEscape).join(","));
-  const csv = lines.join("\n");
 
+  const csv = lines.join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
 
@@ -131,6 +113,27 @@ function downloadCsv(filename: string, headers: string[], rows: string[][]) {
 
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Compatibility export:
+ * Keep this temporarily so pages importing { btnSecondary } do not break.
+ * Remove later after pages are migrated to className="btn btn-secondary".
+ */
+export const btnSecondary: React.CSSProperties = {
+  padding: "8px 14px",
+  border: "1px solid var(--btn-secondary-border, #cfc6b6)",
+  borderRadius: 10,
+  background: "var(--btn-secondary-bg, #ffffff)",
+  color: "var(--btn-secondary-text, #111111)",
+  cursor: "pointer",
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  fontWeight: 700,
+  fontSize: 13,
+  lineHeight: 1,
+};
 
 export default function DataTable<T>({
   columns,
@@ -163,6 +166,8 @@ export default function DataTable<T>({
   enableCsvExport = true,
   csvFilename,
   rowToCsv,
+
+  renderExpandedRow,
 }: Props<T>) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const offset = pageIndex * pageSize;
@@ -170,16 +175,10 @@ export default function DataTable<T>({
   const showingFrom = totalCount === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + rows.length, totalCount);
 
-  const sortIndicator = (key: string) => {
-    if (sortBy !== key) return "";
-    return sortDir === "asc" ? " ▲" : " ▼";
-  };
-
-  // ✅ Global search (client-side, filters CURRENT rows)
   const [globalSearch, setGlobalSearch] = useState("");
 
   const searchableColumns = useMemo(() => {
-    return columns.filter((c) => c.key !== "edit"); // ignore edit link column by default
+    return columns.filter((c) => c.key !== "edit");
   }, [columns]);
 
   const filteredRows = useMemo(() => {
@@ -199,38 +198,34 @@ export default function DataTable<T>({
     });
   }, [rows, globalSearch, enableGlobalSearch, searchableColumns]);
 
-  // ✅ Sort guard: allow click only when column is sortable AND serverSortable !== false
+  function sortIndicator(key: string) {
+    if (sortBy !== key) return "";
+    return sortDir === "asc" ? " ▲" : " ▼";
+  }
+
   function handleHeaderClick(c: Column<T>) {
     if (!c.sortable) return;
-
-    // default is true
-    const serverSortable = c.serverSortable !== false;
-
-    if (!serverSortable) {
-      // do nothing (prevents API sort key mismatch)
-      return;
-    }
-
+    if (c.serverSortable === false) return;
     onToggleSort(c.key);
   }
 
-  // ✅ CSV export for current view (filteredRows, not original rows)
   function onExportCsv() {
     const filename = (csvFilename && csvFilename.trim()) || defaultFilename();
 
-    // if rowToCsv supplied, it defines both headers + values
     if (rowToCsv) {
       const mapped = filteredRows.map((r) => rowToCsv(r) || {});
       const headerSet = new Set<string>();
-      for (const m of mapped) Object.keys(m).forEach((k) => headerSet.add(k));
-      const headers = Array.from(headerSet);
 
+      for (const m of mapped) {
+        Object.keys(m).forEach((k) => headerSet.add(k));
+      }
+
+      const headers = Array.from(headerSet);
       const outRows = mapped.map((m) => headers.map((h) => (m as any)[h]));
-      downloadCsv(filename, headers, outRows as any);
+      downloadCsv(filename, headers, outRows as string[][]);
       return;
     }
 
-    // else: export based on columns (skip edit column)
     const exportCols = columns.filter((c) => c.key !== "edit");
     const headers = exportCols.map((c) => c.header);
 
@@ -245,28 +240,152 @@ export default function DataTable<T>({
   }
 
   return (
-    <div style={{ marginTop: 16 }}>
-      {/* ✅ Scoped hover styling for ALL DataTables */}
+    <div className="section-stack" style={{ marginTop: 16 }}>
       <style>{`
-        /* Slight row highlight on hover */
-        table.dt-table tbody tr.dt-row:hover td {
-          background: rgba(17, 24, 39, 0.04); /* subtle neutral highlight */
+        .dt-toolbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
         }
 
-        /* Optional: show it's interactive */
-        table.dt-table tbody tr.dt-row:hover {
-          cursor: default;
+        .dt-toolbar-left,
+        .dt-toolbar-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .dt-search {
+          width: 240px;
+        }
+
+        .dt-page-size-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: var(--text-muted);
+          font-weight: 600;
+        }
+
+        .dt-count {
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+
+        .dt-table-wrap {
+          overflow-x: auto;
+        }
+
+        .dt-table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+          table-layout: auto;
+          background: var(--surface);
+        }
+
+        .dt-table thead tr:first-child th {
+          background: var(--surface-muted);
+          color: var(--text);
+          font-size: 12px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          border-bottom: 1px solid var(--border);
+          white-space: nowrap;
+        }
+
+        .dt-table thead tr:nth-child(2) th {
+          background: var(--surface-subtle);
+          border-bottom: 1px solid var(--border);
+        }
+
+        .dt-th,
+        .dt-th-btn,
+        .dt-th-filter,
+        .dt-td {
+          padding: 12px 14px;
+          vertical-align: middle;
+        }
+
+        .dt-th-btn {
+          cursor: pointer;
+          user-select: none;
+          transition: background 120ms ease, color 120ms ease;
+        }
+
+        .dt-th-btn:hover {
+          background: color-mix(in srgb, var(--surface-muted) 82%, var(--brand-blue) 18%);
+        }
+
+        .dt-th-filter {
+          padding-top: 8px;
+          padding-bottom: 8px;
+        }
+
+        .dt-filter-muted {
+          font-size: 12px;
+          color: var(--text-soft);
+        }
+
+        .dt-filter-input {
+          width: 100%;
+          min-width: 0;
+          font-size: 12px;
+          padding: 8px 10px;
+        }
+
+        .dt-row > td {
+          border-bottom: 1px solid var(--border);
+          color: var(--text-muted);
+          vertical-align: top;
+        }
+
+        .dt-row:last-of-type > td {
+          border-bottom: 1px solid var(--border);
+        }
+
+        .dt-row:hover > td {
+          background: rgba(34, 68, 139, 0.035);
+        }
+
+        .dt-error {
+          color: var(--brand-red);
+          font-weight: 700;
+        }
+
+        .dt-expanded-cell {
+          padding: 0;
+          border: 0;
+        }
+
+        @media (max-width: 900px) {
+          .dt-toolbar {
+            align-items: stretch;
+          }
+
+          .dt-toolbar-left,
+          .dt-toolbar-right {
+            width: 100%;
+          }
+
+          .dt-search {
+            width: 100%;
+          }
         }
       `}</style>
 
-      {/* Toolbar + result count + pager */}
-      <div style={topBar}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="dt-toolbar">
+        <div className="dt-toolbar-left">
           {toolbar}
 
           {enableGlobalSearch ? (
             <input
-              style={globalSearchInput}
+              className="input dt-search"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
               placeholder={globalSearchPlaceholder}
@@ -298,22 +417,28 @@ export default function DataTable<T>({
           ) : null}
         </div>
 
-        <div style={topBarRight}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>
+        <div className="dt-toolbar-right">
+          <div className="dt-count">
             {loading ? (
               <>Loading…</>
             ) : enableGlobalSearch && globalSearch.trim() ? (
               <>
-                Showing {filteredRows.length} of {rows.length} (filtered) • {showingFrom}–{showingTo} of {totalCount}
+                Showing {filteredRows.length} of {rows.length} (filtered) • {showingFrom}–{showingTo} of{" "}
+                {totalCount}
               </>
             ) : (
               <>Showing {showingFrom}–{showingTo} of {totalCount}</>
             )}
           </div>
 
-          <label style={{ fontSize: 12, opacity: 0.9 }}>
-            Page Size:{" "}
-            <select value={pageSize} onChange={(e) => onPageSizeChange(Number(e.target.value))} disabled={loading}>
+          <label className="dt-page-size-wrap">
+            <span>Page Size:</span>
+            <select
+              className="select"
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              disabled={loading}
+            >
               {pageSizes.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -331,7 +456,7 @@ export default function DataTable<T>({
             Prev
           </button>
 
-          <div style={{ fontSize: 12, opacity: 0.9 }}>
+          <div className="dt-count">
             Page {pageIndex + 1} / {totalPages}
           </div>
 
@@ -346,167 +471,103 @@ export default function DataTable<T>({
         </div>
       </div>
 
-      {/* Table */}
-      <table style={table} className="dt-table">
-        <thead>
-          <tr>
-            {columns.map((c) => {
-              const isClickable = !!c.sortable && c.serverSortable !== false;
-              return (
-                <th
-                  key={c.key}
-                  style={{
-                    ...(isClickable ? thBtn : th),
-                    width: c.width,
-                    opacity: c.sortable && c.serverSortable === false ? 0.65 : 1,
-                  }}
-                  onClick={isClickable ? () => handleHeaderClick(c) : undefined}
-                  role={isClickable ? "button" : undefined}
-                  title={c.sortable ? (c.serverSortable === false ? "Sorting disabled for this column" : "Sort") : undefined}
-                >
-                  {c.header}
-                  {c.sortable ? sortIndicator(c.key) : null}
-                </th>
-              );
-            })}
-          </tr>
+      <div className="table-card">
+        <div className="dt-table-wrap">
+          <table className="dt-table table-clean">
+            <thead>
+              <tr>
+                {columns.map((c) => {
+                  const isClickable = !!c.sortable && c.serverSortable !== false;
 
-          <tr>
-            {columns.map((c) => (
-              <th key={c.key} style={thFilter}>
-                {c.filterRender ? (
-                  c.filterRender
-                ) : c.filterable ? (
-                  <input
-                    style={filterInput}
-                    placeholder={c.placeholder ?? c.header}
-                    value={filters[c.key] ?? ""}
-                    onChange={(e) => onFilterChange(c.key, e.target.value)}
-                  />
-                ) : (
-                  <span style={filterMuted}>—</span>
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
+                  return (
+                    <th
+                      key={c.key}
+                      className={isClickable ? "dt-th-btn" : "dt-th"}
+                      style={{
+                        width: c.width,
+                        opacity: c.sortable && c.serverSortable === false ? 0.65 : 1,
+                      }}
+                      onClick={isClickable ? () => handleHeaderClick(c) : undefined}
+                      role={isClickable ? "button" : undefined}
+                      title={
+                        c.sortable
+                          ? c.serverSortable === false
+                            ? "Sorting disabled for this column"
+                            : "Sort"
+                          : undefined
+                      }
+                    >
+                      {c.header}
+                      {c.sortable ? sortIndicator(c.key) : null}
+                    </th>
+                  );
+                })}
+              </tr>
 
-        <tbody>
-          {error ? (
-            <tr className="dt-row">
-              <td style={td} colSpan={columns.length}>
-                <span style={{ color: "crimson" }}>{error}</span>
-              </td>
-            </tr>
-          ) : loading ? (
-            <tr className="dt-row">
-              <td style={td} colSpan={columns.length}>
-                Loading…
-              </td>
-            </tr>
-          ) : filteredRows.length === 0 ? (
-            <tr className="dt-row">
-              <td style={td} colSpan={columns.length}>
-                {emptyText}
-              </td>
-            </tr>
-          ) : (
-            filteredRows.map((r) => (
-              <tr key={rowKey(r)} className="dt-row">
+              <tr>
                 {columns.map((c) => (
-                  <td key={c.key} style={td}>
-                    {c.render(r)}
-                  </td>
+                  <th key={c.key} className="dt-th-filter">
+                    {c.filterRender ? (
+                      c.filterRender
+                    ) : c.filterable ? (
+                      <input
+                        className="input dt-filter-input"
+                        placeholder={c.placeholder ?? c.header}
+                        value={filters[c.key] ?? ""}
+                        onChange={(e) => onFilterChange(c.key, e.target.value)}
+                      />
+                    ) : (
+                      <span className="dt-filter-muted">—</span>
+                    )}
+                  </th>
                 ))}
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            </thead>
+
+            <tbody>
+              {error ? (
+                <tr className="dt-row">
+                  <td className="dt-td" colSpan={columns.length}>
+                    <span className="dt-error">{error}</span>
+                  </td>
+                </tr>
+              ) : loading ? (
+                <tr className="dt-row">
+                  <td className="dt-td" colSpan={columns.length}>
+                    Loading…
+                  </td>
+                </tr>
+              ) : filteredRows.length === 0 ? (
+                <tr className="dt-row">
+                  <td className="dt-td" colSpan={columns.length}>
+                    {emptyText}
+                  </td>
+                </tr>
+              ) : (
+                filteredRows.map((r) => (
+                  <React.Fragment key={rowKey(r)}>
+                    <tr className="dt-row">
+                      {columns.map((c) => (
+                        <td key={c.key} className="dt-td">
+                          {c.render(r)}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {renderExpandedRow ? (
+                      <tr>
+                        <td colSpan={columns.length} className="dt-expanded-cell">
+                          {renderExpandedRow(r)}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
-
-/* ---------- Styles ---------- */
-
-const topBar: React.CSSProperties = {
-  marginTop: 12,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const topBarRight: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-/**
- * ✅ Compatibility export:
- * Keep this so existing pages that import { btnSecondary } DO NOT break.
- * You can delete this export later after you migrate pages to className="btn btn-secondary".
- */
-export const btnSecondary: React.CSSProperties = {
-  padding: "6px 10px",
-  border: "1px solid #ddd",
-  borderRadius: 6,
-  background: "#fafafa",
-  cursor: "pointer",
-};
-
-const globalSearchInput: React.CSSProperties = {
-  width: 240,
-  fontSize: 12,
-  padding: "6px 10px",
-  border: "1px solid #ddd",
-  borderRadius: 6,
-};
-
-const table: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  tableLayout: "auto",
-};
-
-const th: React.CSSProperties = {
-  textAlign: "left",
-  borderBottom: "1px solid #ddd",
-  padding: 8,
-  fontSize: 12,
-  whiteSpace: "nowrap",
-};
-
-const thBtn: React.CSSProperties = {
-  ...th,
-  cursor: "pointer",
-  userSelect: "none",
-};
-
-const thFilter: React.CSSProperties = {
-  borderBottom: "1px solid #ddd",
-  padding: 6,
-  background: "#fafafa",
-};
-
-const filterInput: React.CSSProperties = {
-  width: "100%",
-  fontSize: 12,
-  padding: "4px 6px",
-  border: "1px solid #ddd",
-  borderRadius: 4,
-};
-
-const filterMuted: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.5,
-};
-
-const td: React.CSSProperties = {
-  borderBottom: "1px solid #eee",
-  padding: 8,
-  verticalAlign: "top",
-};

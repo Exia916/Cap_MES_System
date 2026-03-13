@@ -121,7 +121,7 @@ export default function CMMSWorkOrderViewPage({
           <Info label="Requested At" value={fmtTs(row.requestedAt)} />
           <Info label="Requested By" value={row.requestedByName} />
           <Info label="Requested By User" value={row.requestedByUserId} />
-          <Info label="Operator Initials" value={row.operatorInitials} />
+          <Info label="Operator Name" value={row.operatorInitials} />
 
           <Info label="Department" value={row.department} />
           <Info label="Asset" value={row.asset} />

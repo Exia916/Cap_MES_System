@@ -365,173 +365,200 @@ export default function EmblemProductionForm({
     }
   }
 
-  if (loading) return <div className="p-6">Loading…</div>;
-
-  return (
-    <form onSubmit={onSubmit} className="max-w-4xl mx-auto space-y-4">
-      {/* server/runtime errors only */}
-      {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {successMsg && (
-        <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
-          {successMsg}
-        </div>
-      )}
-
-      {/* Entry Date intentionally hidden */}
-
-      <div>
-        <label className="block text-sm font-medium mb-1">
-          Sales Order <span className="text-red-600">*</span>
-        </label>
-        <input
-          ref={salesOrderRef}
-          className={inputClass(!!fieldErrors.salesOrder)}
-          value={salesOrder}
-          onChange={(e) => {
-            setSalesOrder(stripCommas(e.target.value));
-            clearSalesOrderError();
-          }}
-          placeholder="1234567"
-          inputMode="numeric"
-          readOnly={mode === "edit"} // match your other modules (prevents SO changes on edit)
-        />
-        {fieldErrors.salesOrder ? <div className={errTextClass}>{fieldErrors.salesOrder}</div> : null}
-        <div className="mt-1 text-xs opacity-70">Is required, and has to be a 7 digit number.</div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium mb-1">Header Notes</label>
-        <input
-          className={inputClass(false)}
-          value={headerNotes}
-          onChange={(e) => setHeaderNotes(e.target.value)}
-          placeholder="Optional"
-        />
-      </div>
-
-      <div className="rounded border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="font-medium">Lines</div>
-          <button type="button" onClick={addLine} className="rounded border px-3 py-1.5 text-sm">
-            + Add Line
+  if (loading) {
+    return (
+      <>
+        <div className="mb-4">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => router.push("/emblem-production")}
+          >
+            ← Back to List
           </button>
         </div>
+        <div className="p-6">Loading…</div>
+      </>
+    );
+  }
 
-        {lines.map((line, idx) => {
-          const le = fieldErrors.lines?.[idx] ?? {};
-          return (
-            <div key={idx} className="rounded border p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">Line {idx + 1}</div>
-                <button
-                  type="button"
-                  onClick={() => removeLine(idx)}
-                  className="rounded border px-3 py-1.5 text-sm"
-                  disabled={lines.length === 1}
-                >
-                  Remove
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Detail # <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    ref={(el) => {
-                      detailRefs.current[idx] = el;
-                    }}
-                    className={inputClass(!!le.detailNumber)}
-                    value={line.detailNumber}
-                    onChange={(e) => {
-                      updateLine(idx, { detailNumber: stripCommas(e.target.value) });
-                      clearLineFieldError(idx, "detailNumber");
-                    }}
-                    inputMode="numeric"
-                  />
-                  {le.detailNumber ? <div className={errTextClass}>{le.detailNumber}</div> : null}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Emblem Type <span className="text-red-600">*</span>
-                  </label>
-                  <select
-                    ref={(el) => {
-                      emblemTypeRefs.current[idx] = el;
-                    }}
-                    className={inputClass(!!le.emblemType)}
-                    value={line.emblemType}
-                    onChange={(e) => {
-                      updateLine(idx, { emblemType: e.target.value });
-                      clearLineFieldError(idx, "emblemType");
-                    }}
-                  >
-                    <option value="">{typesLoading ? "Loading..." : "Select emblem type"}</option>
-                    {emblemTypes.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                  {le.emblemType ? <div className={errTextClass}>{le.emblemType}</div> : null}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Logo Name</label>
-                  <input
-                    className={inputClass(false)}
-                    value={line.logoName}
-                    onChange={(e) => updateLine(idx, { logoName: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Pieces <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    ref={(el) => {
-                      piecesRefs.current[idx] = el;
-                    }}
-                    type="text"
-                    className={inputClass(!!le.pieces)}
-                    value={line.pieces}
-                    onChange={(e) => {
-                      updateLine(idx, { pieces: stripCommas(e.target.value) });
-                      clearLineFieldError(idx, "pieces");
-                    }}
-                    inputMode="numeric"
-                  />
-                  {le.pieces ? <div className={errTextClass}>{le.pieces}</div> : null}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Line Notes</label>
-                <input
-                  className={inputClass(false)}
-                  value={line.notes}
-                  onChange={(e) => updateLine(idx, { notes: e.target.value })}
-                  placeholder="Optional"
-                />
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="text-sm text-gray-600">Total Pieces: {totalPieces}</div>
+  return (
+    <>
+      <div className="mb-4">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => router.push("/emblem-production")}
+        >
+          ← Back to List
+        </button>
       </div>
 
-      <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-60">
-        {saving ? "Saving..." : mode === "edit" ? "Update" : "Save"}
-      </button>
-    </form>
+      <form onSubmit={onSubmit} className="max-w-4xl mx-auto space-y-4">
+        {/* server/runtime errors only */}
+        {error && (
+          <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+            {successMsg}
+          </div>
+        )}
+
+        {/* Entry Date intentionally hidden */}
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Sales Order <span className="text-red-600">*</span>
+          </label>
+          <input
+            ref={salesOrderRef}
+            className={inputClass(!!fieldErrors.salesOrder)}
+            value={salesOrder}
+            onChange={(e) => {
+              setSalesOrder(stripCommas(e.target.value));
+              clearSalesOrderError();
+            }}
+            placeholder="1234567"
+            inputMode="numeric"
+            readOnly={mode === "edit"} // match your other modules (prevents SO changes on edit)
+          />
+          {fieldErrors.salesOrder ? <div className={errTextClass}>{fieldErrors.salesOrder}</div> : null}
+          <div className="mt-1 text-xs opacity-70">Is required, and has to be a 7 digit number.</div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Header Notes</label>
+          <input
+            className={inputClass(false)}
+            value={headerNotes}
+            onChange={(e) => setHeaderNotes(e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+
+        <div className="rounded border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="font-medium">Lines</div>
+            <button type="button" onClick={addLine} className="btn btn-secondary btn-sm">
+              + Add Line
+            </button>
+          </div>
+
+          {lines.map((line, idx) => {
+            const le = fieldErrors.lines?.[idx] ?? {};
+            return (
+              <div key={idx} className="rounded border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-medium">Line {idx + 1}</div>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(idx)}
+                    className="btn btn-danger btn-sm"
+                    disabled={lines.length === 1}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Detail # <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      ref={(el) => {
+                        detailRefs.current[idx] = el;
+                      }}
+                      className={inputClass(!!le.detailNumber)}
+                      value={line.detailNumber}
+                      onChange={(e) => {
+                        updateLine(idx, { detailNumber: stripCommas(e.target.value) });
+                        clearLineFieldError(idx, "detailNumber");
+                      }}
+                      inputMode="numeric"
+                    />
+                    {le.detailNumber ? <div className={errTextClass}>{le.detailNumber}</div> : null}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Emblem Type <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      ref={(el) => {
+                        emblemTypeRefs.current[idx] = el;
+                      }}
+                      className={inputClass(!!le.emblemType)}
+                      value={line.emblemType}
+                      onChange={(e) => {
+                        updateLine(idx, { emblemType: e.target.value });
+                        clearLineFieldError(idx, "emblemType");
+                      }}
+                    >
+                      <option value="">{typesLoading ? "Loading..." : "Select emblem type"}</option>
+                      {emblemTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                    {le.emblemType ? <div className={errTextClass}>{le.emblemType}</div> : null}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Logo Name</label>
+                    <input
+                      className={inputClass(false)}
+                      value={line.logoName}
+                      onChange={(e) => updateLine(idx, { logoName: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Pieces <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      ref={(el) => {
+                        piecesRefs.current[idx] = el;
+                      }}
+                      type="text"
+                      className={inputClass(!!le.pieces)}
+                      value={line.pieces}
+                      onChange={(e) => {
+                        updateLine(idx, { pieces: stripCommas(e.target.value) });
+                        clearLineFieldError(idx, "pieces");
+                      }}
+                      inputMode="numeric"
+                    />
+                    {le.pieces ? <div className={errTextClass}>{le.pieces}</div> : null}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Line Notes</label>
+                  <input
+                    className={inputClass(false)}
+                    value={line.notes}
+                    onChange={(e) => updateLine(idx, { notes: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="text-sm text-gray-600">Total Pieces: {totalPieces}</div>
+        </div>
+
+        <button type="submit" disabled={saving} className="btn btn-primary">
+          {saving ? "Saving..." : mode === "edit" ? "Update" : "Save"}
+        </button>
+      </form>
+    </>
   );
 }

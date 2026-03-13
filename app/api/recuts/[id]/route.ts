@@ -5,6 +5,8 @@ import {
   updateRecutRequest,
 } from "@/lib/repositories/recutRepo";
 import { getAuthFromRequest } from "@/lib/auth";
+import { logAuditEvent, logError, logWarn } from "@/lib/logging/logger";
+import { normalizeSalesOrder } from "@/lib/utils/salesOrder";
 
 export const runtime = "nodejs";
 
@@ -32,25 +34,47 @@ function isEmbDept(value: string | null | undefined) {
   return v === "Embroidery" || v === "Annex Embroidery" || v === "Sample Embroidery";
 }
 
-function isValidSalesOrder(v: string) {
-  return /^\d{7}\.\d{3}$/.test(String(v || "").trim());
-}
-
 export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+  let id = "";
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
     if (!auth) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+
     if (!roleOk((auth as any).role, VIEW_ROLES)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_VIEW_FORBIDDEN",
+        message: "User attempted to view recut request without permission",
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { id } = await ctx.params;
+    const params = await ctx.params;
+    id = String(params?.id || "").trim();
+
     const entry = await getRecutRequestById(id);
 
     if (!entry) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_NOT_FOUND",
+        message: "Recut request not found",
+        recordType: "recut_requests",
+        recordId: id || null,
+      });
+
       return NextResponse.json<Resp>({ error: "Not found" }, { status: 404 });
     }
 
@@ -68,11 +92,42 @@ export async function GET(
       Number(entry.requestedByEmployeeNumber ?? -1) === Number(employeeNumber);
 
     if (!isManager && !isOwner) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_VIEW_NOT_OWNER",
+        message: "User attempted to view another user's recut request",
+        recordType: "recut_requests",
+        recordId: id,
+        details: {
+          requestedByEmployeeNumber: entry.requestedByEmployeeNumber ?? null,
+          authEmployeeNumber: employeeNumber,
+        },
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
     return NextResponse.json<Resp>({ entry }, { status: 200 });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_VIEW_ERROR",
+      message: "Failed to load recut request",
+      recordType: "recut_requests",
+      recordId: id || null,
+      error: err,
+      details: {
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recut GET by id error:", err);
     return NextResponse.json<Resp>({ error: "Server error" }, { status: 500 });
   }
@@ -82,17 +137,43 @@ export async function PUT(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+  let id = "";
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
     if (!auth) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+
     if (!roleOk((auth as any).role, VIEW_ROLES)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_FORBIDDEN",
+        message: "User attempted to update recut request without permission",
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { id } = await ctx.params;
+    const params = await ctx.params;
+    id = String(params?.id || "").trim();
+
     const current = await getRecutRequestById(id);
 
     if (!current) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_NOT_FOUND",
+        message: "Recut request not found during update",
+        recordType: "recut_requests",
+        recordId: id || null,
+      });
+
       return NextResponse.json<Resp>({ error: "Not found" }, { status: 404 });
     }
 
@@ -109,7 +190,21 @@ export async function PUT(
 
     if (!isManager) {
       if (!employeeNumber || !Number.isFinite(employeeNumber)) {
-        return NextResponse.json<Resp>({ error: "Missing employee number in auth payload." }, { status: 400 });
+        await logWarn({
+          req,
+          auth,
+          category: "API",
+          module: "RECUT",
+          eventType: "RECUT_UPDATE_INVALID_AUTH_CONTEXT",
+          message: "Recut update failed due to missing employee number in auth payload",
+          recordType: "recut_requests",
+          recordId: id,
+        });
+
+        return NextResponse.json<Resp>(
+          { error: "Missing employee number in auth payload." },
+          { status: 400 }
+        );
       }
 
       const canEdit = await canUserEditOwnRecutRequest({
@@ -118,6 +213,22 @@ export async function PUT(
       });
 
       if (!canEdit) {
+        await logWarn({
+          req,
+          auth,
+          category: "API",
+          module: "RECUT",
+          eventType: "RECUT_UPDATE_LOCKED",
+          message: "User attempted to edit a recut request that can no longer be edited",
+          recordType: "recut_requests",
+          recordId: id,
+          details: {
+            employeeNumber,
+            supervisorApproved: current.supervisorApproved,
+            warehousePrinted: current.warehousePrinted,
+          },
+        });
+
         return NextResponse.json<Resp>(
           { error: "This recut request can no longer be edited." },
           { status: 403 }
@@ -127,11 +238,25 @@ export async function PUT(
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update received invalid request body",
+        recordType: "recut_requests",
+        recordId: id,
+        details: {
+          reason: "INVALID_REQUEST_BODY",
+        },
+      });
+
       return NextResponse.json<Resp>({ error: "Invalid request body." }, { status: 400 });
     }
 
     const requestedDepartment = String((body as any).requestedDepartment ?? "").trim();
-    const salesOrder = String((body as any).salesOrder ?? "").trim();
+    const rawSalesOrder = String((body as any).salesOrder ?? "").trim();
     const designName = String((body as any).designName ?? "").trim();
     const recutReason = String((body as any).recutReason ?? "").trim();
     const detailNumber = Number((body as any).detailNumber);
@@ -147,27 +272,134 @@ export async function PUT(
     let doNotPull = !!(body as any).doNotPull;
 
     if (!requestedDepartment) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "REQUESTED_DEPARTMENT_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Requested Department is required." }, { status: 400 });
     }
-    if (!isValidSalesOrder(salesOrder)) {
-      return NextResponse.json<Resp>({ error: "Sales Order must be in format 3023113.001" }, { status: 400 });
+
+    const normalizedSO = normalizeSalesOrder(rawSalesOrder);
+    if (!normalizedSO.isValid || !normalizedSO.salesOrderDisplay || !normalizedSO.salesOrderBase) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "INVALID_SALES_ORDER_FORMAT", salesOrder: rawSalesOrder },
+      });
+
+      return NextResponse.json<Resp>(
+        { error: normalizedSO.error ?? "Sales Order must begin with 7 digits." },
+        { status: 400 }
+      );
     }
+
     if (!designName) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "DESIGN_NAME_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Design Name is required." }, { status: 400 });
     }
+
     if (!recutReason) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "RECUT_REASON_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Recut Reason is required." }, { status: 400 });
     }
+
     if (!Number.isInteger(detailNumber) || detailNumber < 0) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "INVALID_DETAIL_NUMBER", detailNumber: (body as any).detailNumber ?? null },
+      });
+
       return NextResponse.json<Resp>({ error: "Detail # must be a whole number." }, { status: 400 });
     }
+
     if (!capStyle) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "CAP_STYLE_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Cap Style is required." }, { status: 400 });
     }
+
     if (!Number.isInteger(pieces) || pieces <= 0) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "INVALID_PIECES", pieces: (body as any).pieces ?? null },
+      });
+
       return NextResponse.json<Resp>({ error: "Pieces must be greater than 0." }, { status: 400 });
     }
+
     if (!deliverTo) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "DELIVER_TO_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Deliver To is required." }, { status: 400 });
     }
 
@@ -175,7 +407,20 @@ export async function PUT(
     if (isEmbDept(authDept)) {
       operator = authName;
     }
+
     if (!operator) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_UPDATE_INVALID",
+        message: "Recut update failed validation",
+        recordType: "recut_requests",
+        recordId: id,
+        details: { reason: "OPERATOR_REQUIRED" },
+      });
+
       return NextResponse.json<Resp>({ error: "Operator is required." }, { status: 400 });
     }
 
@@ -188,7 +433,9 @@ export async function PUT(
     await updateRecutRequest({
       id,
       requestedDepartment,
-      salesOrder,
+      salesOrder: normalizedSO.salesOrderDisplay,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
       designName,
       recutReason,
       detailNumber,
@@ -238,8 +485,89 @@ export async function PUT(
             : current.doNotPullBy,
     });
 
+    await logAuditEvent({
+      req,
+      auth,
+      module: "RECUT",
+      eventType: "RECUT_UPDATED",
+      message: "Recut request updated",
+      recordType: "recut_requests",
+      recordId: id,
+      details: {
+        requestedDepartment,
+        salesOrder: normalizedSO.salesOrderDisplay,
+        salesOrderBase: normalizedSO.salesOrderBase,
+        designName,
+        recutReason,
+        detailNumber,
+        capStyle,
+        pieces,
+        operator,
+        deliverTo,
+        event,
+      },
+    });
+
+    if (supervisorApproved !== Boolean(current.supervisorApproved)) {
+      await logAuditEvent({
+        req,
+        auth,
+        module: "RECUT",
+        eventType: supervisorApproved ? "RECUT_SUPERVISOR_APPROVED" : "RECUT_SUPERVISOR_APPROVAL_REMOVED",
+        message: supervisorApproved
+          ? "Recut request supervisor approval set"
+          : "Recut request supervisor approval removed",
+        recordType: "recut_requests",
+        recordId: id,
+      });
+    }
+
+    if (warehousePrinted !== Boolean(current.warehousePrinted)) {
+      await logAuditEvent({
+        req,
+        auth,
+        module: "RECUT",
+        eventType: warehousePrinted ? "RECUT_WAREHOUSE_PRINTED_SET" : "RECUT_WAREHOUSE_PRINTED_REMOVED",
+        message: warehousePrinted
+          ? "Recut request warehouse printed flag set"
+          : "Recut request warehouse printed flag removed",
+        recordType: "recut_requests",
+        recordId: id,
+      });
+    }
+
+    if (doNotPull !== Boolean(current.doNotPull)) {
+      await logAuditEvent({
+        req,
+        auth,
+        module: "RECUT",
+        eventType: doNotPull ? "RECUT_DO_NOT_PULL_SET" : "RECUT_DO_NOT_PULL_REMOVED",
+        message: doNotPull
+          ? "Recut request marked do not pull"
+          : "Recut request do not pull removed",
+        recordType: "recut_requests",
+        recordId: id,
+      });
+    }
+
     return NextResponse.json<Resp>({ ok: true }, { status: 200 });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_UPDATE_ERROR",
+      message: "Failed to update recut request",
+      recordType: "recut_requests",
+      recordId: id || null,
+      error: err,
+      details: {
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recut PUT by id error:", err);
     return NextResponse.json<Resp>({ error: "Server error" }, { status: 500 });
   }

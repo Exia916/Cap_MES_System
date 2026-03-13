@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { listRecutRequestsForUserPaged, type SortDir } from "@/lib/repositories/recutRepo";
+import { logError, logWarn } from "@/lib/logging/logger";
 
 export const runtime = "nodejs";
 
@@ -28,13 +29,25 @@ function parseBoolParam(v: string | null): boolean | null {
 }
 
 export async function GET(req: NextRequest) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
+
     if (!auth) {
       return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (!roleOk((auth as any).role)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_LIST_FORBIDDEN",
+        message: "User attempted to load recut request list without permission",
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -46,6 +59,15 @@ export async function GET(req: NextRequest) {
           : null;
 
     if (!employeeNumber || !Number.isFinite(employeeNumber)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_LIST_INVALID_AUTH_CONTEXT",
+        message: "Recut list failed due to missing employee number in auth payload",
+      });
+
       return NextResponse.json<Resp>(
         { error: "Missing employee number in auth payload." },
         { status: 400 }
@@ -107,7 +129,21 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json<Resp>(result, { status: 200 });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_LIST_ERROR",
+      message: "Failed to load recut request list",
+      error: err,
+      details: {
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recuts list GET error:", err);
     return NextResponse.json<Resp>({ error: "Server error" }, { status: 500 });
   }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 type Row = {
   workOrderId: number;
@@ -49,8 +49,7 @@ function normStatus(s: unknown) {
 function statusPillStyle(statusRaw: unknown): React.CSSProperties {
   const s = normStatus(statusRaw);
 
-  // Defaults (neutral)
-  let bg = "rgba(148, 163, 184, 0.25)"; // slate-ish
+  let bg = "rgba(148, 163, 184, 0.25)";
   let border = "rgba(148, 163, 184, 0.55)";
   let fg = "rgb(51, 65, 85)";
 
@@ -97,7 +96,6 @@ export default function RepairRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // server state
   const [sortBy, setSortBy] = useState<string>("requestedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -114,7 +112,6 @@ export default function RepairRequestsPage() {
     status: "",
   });
 
-  // ✅ Date range (server-filtered) lives in header toolbar
   const [requestedFrom, setRequestedFrom] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -132,19 +129,14 @@ export default function RepairRequestsPage() {
     try {
       const url = new URL("/api/cmms/work-orders", window.location.origin);
 
-      // paging
       url.searchParams.set("pageIndex", String(pageIndex));
       url.searchParams.set("pageSize", String(pageSize));
-
-      // sorting
       url.searchParams.set("sortBy", sortBy);
       url.searchParams.set("sortDir", sortDir);
 
-      // date range
       if (requestedFrom) url.searchParams.set("requestedFrom", requestedFrom);
       if (requestedTo) url.searchParams.set("requestedTo", requestedTo);
 
-      // column filters
       for (const [k, v] of Object.entries(filters)) {
         const val = (v ?? "").trim();
         if (val) url.searchParams.set(`f_${k}`, val);
@@ -197,7 +189,6 @@ export default function RepairRequestsPage() {
       setPageIndex(0);
       return;
     }
-
     if (kind === "last7") {
       const d = new Date();
       d.setDate(d.getDate() - 7);
@@ -206,7 +197,6 @@ export default function RepairRequestsPage() {
       setPageIndex(0);
       return;
     }
-
     if (kind === "last30") {
       const d = new Date();
       d.setDate(d.getDate() - 30);
@@ -215,14 +205,12 @@ export default function RepairRequestsPage() {
       setPageIndex(0);
       return;
     }
-
     if (kind === "thisMonth") {
       setRequestedFrom(ymdLocal(startOfMonth(now)));
       setRequestedTo(ymdLocal(endOfMonth(now)));
       setPageIndex(0);
       return;
     }
-
     // prevMonth
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     setRequestedFrom(ymdLocal(startOfMonth(prev)));
@@ -299,7 +287,7 @@ export default function RepairRequestsPage() {
       },
       {
         key: "operatorInitials",
-        header: "OP INIT",
+        header: "OP Name",
         width: 90,
         sortable: true,
         filterable: true,
@@ -348,13 +336,13 @@ export default function RepairRequestsPage() {
       },
       {
         key: "edit",
-        header: "EDIT",
+        header: "",
         width: 90,
         sortable: false,
         serverSortable: false,
         filterable: false,
         render: (r) => (
-          <Link href={`/cmms/repair-requests/${r.workOrderId}`} style={btnSecondary}>
+          <Link href={`/cmms/repair-requests/${r.workOrderId}`} className="btn btn-primary btn-sm">
             Edit
           </Link>
         ),
@@ -365,19 +353,19 @@ export default function RepairRequestsPage() {
 
   const toolbar = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <button type="button" style={btnSecondary} onClick={() => setPreset("today")} disabled={loading}>
+      <button type="button" className="btn btn-secondary" onClick={() => setPreset("today")} disabled={loading}>
         Today
       </button>
-      <button type="button" style={btnSecondary} onClick={() => setPreset("last7")} disabled={loading}>
+      <button type="button" className="btn btn-secondary" onClick={() => setPreset("last7")} disabled={loading}>
         Last 7
       </button>
-      <button type="button" style={btnSecondary} onClick={() => setPreset("last30")} disabled={loading}>
+      <button type="button" className="btn btn-secondary" onClick={() => setPreset("last30")} disabled={loading}>
         Last 30
       </button>
-      <button type="button" style={btnSecondary} onClick={() => setPreset("thisMonth")} disabled={loading}>
+      <button type="button" className="btn btn-secondary" onClick={() => setPreset("thisMonth")} disabled={loading}>
         This Month
       </button>
-      <button type="button" style={btnSecondary} onClick={() => setPreset("prevMonth")} disabled={loading}>
+      <button type="button" className="btn btn-secondary" onClick={() => setPreset("prevMonth")} disabled={loading}>
         Prev Month
       </button>
 
@@ -410,7 +398,7 @@ export default function RepairRequestsPage() {
 
       <button
         type="button"
-        style={btnSecondary}
+        className="btn btn-secondary"
         onClick={() => {
           setFilters({
             workOrderId: "",
@@ -428,7 +416,6 @@ export default function RepairRequestsPage() {
           setSortDir("desc");
           setPageIndex(0);
           setPageSize(DEFAULT_PAGE_SIZE);
-
           const d = new Date();
           d.setDate(d.getDate() - 30);
           setRequestedFrom(ymdLocal(d));
@@ -443,10 +430,9 @@ export default function RepairRequestsPage() {
   );
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>Repair Requests</h1>
-
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">Repair Requests</h1>
         <Link href="/cmms/repair-requests/add" className="btn btn-primary">
           + Add Request
         </Link>
@@ -481,29 +467,6 @@ export default function RepairRequestsPage() {
     </div>
   );
 }
-
-/* styles */
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-};
-
-const btnPrimary: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 10,
-  border: "1px solid #111827",
-  background: "#111827",
-  color: "#fff",
-  fontWeight: 700,
-  fontSize: 13,
-  textDecoration: "none",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-};
 
 const dateInput: React.CSSProperties = {
   width: 140,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { createQCSubmission, addQCLinesBulk } from "@/lib/repositories/qcRepo";
+import { normalizeSalesOrder, toLegacySalesOrderNumber } from "@/lib/utils/salesOrder";
 
 type LineBody = {
   detailNumber: string;
@@ -15,7 +16,7 @@ type LineBody = {
 type Body = {
   entryTs: string;
   salesOrder?: string | null;
-  notes?: string | null; // header notes
+  notes?: string | null;
   lines: LineBody[];
 };
 
@@ -31,7 +32,9 @@ function toNonNegIntOrNull(value: unknown, label: string): number | null {
   const raw = (value ?? "").toString().trim();
   if (!raw) return null;
   const n = Number(raw);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) throw new Error(`${label} must be a non-negative integer.`);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
   return n;
 }
 
@@ -50,25 +53,35 @@ export async function POST(req: Request) {
 
     const name = auth.displayName ?? auth.username ?? "";
     const employeeNumber = Number(auth.employeeNumber);
+
     if (!name) throw new Error("Authenticated user name not found.");
     if (!Number.isFinite(employeeNumber)) throw new Error("Authenticated employeeNumber not found.");
 
     const body = (await req.json()) as Body;
 
     if (!body?.entryTs) throw new Error("entryTs is required.");
-    if (!Array.isArray(body?.lines) || body.lines.length === 0) throw new Error("At least one line is required.");
+    if (!Array.isArray(body?.lines) || body.lines.length === 0) {
+      throw new Error("At least one line is required.");
+    }
 
     const entryTs = new Date(body.entryTs);
     if (Number.isNaN(entryTs.getTime())) throw new Error("entryTs is invalid.");
 
-    const salesOrder = toNullableInt(body.salesOrder);
+    const normalizedSO = normalizeSalesOrder(body.salesOrder);
+    if (!normalizedSO.isValid) {
+      throw new Error(normalizedSO.error ?? "Invalid Sales Order.");
+    }
+
+    const legacySalesOrder = toLegacySalesOrderNumber(normalizedSO.salesOrderBase);
     const headerNotes = body.notes?.toString().trim() || null;
 
     const sub = await createQCSubmission({
       entryTs,
       name,
       employeeNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
+      legacySalesOrder,
       notes: headerNotes,
     });
 
@@ -77,10 +90,14 @@ export async function POST(req: Request) {
       entryTs,
       name,
       employeeNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
+      salesOrderDisplay: normalizedSO.salesOrderDisplay,
+      legacySalesOrder,
       lines: body.lines.map((l, i) => {
         const detailNumber = toNullableInt(l.detailNumber);
-        if (detailNumber === null) throw new Error(`Line ${i + 1}: detailNumber is required (number).`);
+        if (detailNumber === null) {
+          throw new Error(`Line ${i + 1}: detailNumber is required (number).`);
+        }
 
         return {
           detailNumber,
@@ -94,8 +111,16 @@ export async function POST(req: Request) {
       }),
     });
 
-    return NextResponse.json({ success: true, submissionId: sub.id, count: inserted.ids.length, ids: inserted.ids });
+    return NextResponse.json({
+      success: true,
+      submissionId: sub.id,
+      count: inserted.ids.length,
+      ids: inserted.ids,
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Failed to add QC submission." }, { status: 400 });
+    return NextResponse.json(
+      { error: err?.message ?? "Failed to add QC submission." },
+      { status: 400 }
+    );
   }
 }

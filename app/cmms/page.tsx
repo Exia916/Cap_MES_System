@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 type Row = {
   workOrderId: number;
@@ -53,8 +53,7 @@ function normStatus(s: unknown) {
 function statusPillStyle(statusRaw: unknown): React.CSSProperties {
   const s = normStatus(statusRaw);
 
-  // Defaults (neutral)
-  let bg = "rgba(148, 163, 184, 0.25)"; // slate-ish
+  let bg = "rgba(148, 163, 184, 0.25)";
   let border = "rgba(148, 163, 184, 0.55)";
   let fg = "rgb(51, 65, 85)";
 
@@ -107,6 +106,7 @@ export default function CMMSPage() {
 
   const [{ from, to }, setRange] = useState(defaultFromTo());
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [hideResolved, setHideResolved] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +114,7 @@ export default function CMMSPage() {
   async function load() {
     setLoading(true);
     setError(null);
+
     try {
       const url = new URL("/api/cmms/tech/work-orders", window.location.origin);
       url.searchParams.set("pageIndex", String(pageIndex));
@@ -123,6 +124,7 @@ export default function CMMSPage() {
 
       if (from) url.searchParams.set("requestedFrom", from);
       if (to) url.searchParams.set("requestedTo", to);
+      if (hideResolved) url.searchParams.set("excludeResolved", "true");
 
       for (const [k, v] of Object.entries(filters)) {
         if (v?.trim()) url.searchParams.set(`f_${k}`, v.trim());
@@ -136,6 +138,8 @@ export default function CMMSPage() {
       setTotalCount((data as any).totalCount || 0);
     } catch (e: any) {
       setError(e?.message || "Failed to load CMMS");
+      setRows([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -144,7 +148,7 @@ export default function CMMSPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIndex, pageSize, sortBy, sortDir, from, to, JSON.stringify(filters)]);
+  }, [pageIndex, pageSize, sortBy, sortDir, from, to, hideResolved, JSON.stringify(filters)]);
 
   const columns: Column<Row>[] = useMemo(() => {
     const cell = (key: keyof Row) => (r: Row) => {
@@ -176,7 +180,6 @@ export default function CMMSPage() {
         render: (r) => dt(r.requestedAt),
         getSearchText: (r) => dt(r.requestedAt),
       },
-
       {
         key: "requestedByName",
         header: "Requester",
@@ -209,10 +212,9 @@ export default function CMMSPage() {
         placeholder: "Priority…",
         render: cell("priority"),
       },
-
       {
         key: "operatorInitials",
-        header: "Op Init",
+        header: "Op Name",
         sortable: false,
         serverSortable: false,
         filterable: true,
@@ -236,7 +238,6 @@ export default function CMMSPage() {
         placeholder: "Contains…",
         render: cell("issueDialogue"),
       },
-
       {
         key: "type",
         header: "Type",
@@ -283,15 +284,14 @@ export default function CMMSPage() {
         placeholder: "Resolution…",
         render: cell("resolution"),
       },
-
       {
         key: "edit",
-        header: "Edit",
+        header: "",
         filterable: false,
         sortable: false,
         serverSortable: false,
         render: (r) => (
-          <Link href={`/cmms/${r.workOrderId}/edit`} style={btnSecondary}>
+          <Link href={`/cmms/${r.workOrderId}/edit`} className="btn btn-primary btn-sm">
             Open
           </Link>
         ),
@@ -300,15 +300,15 @@ export default function CMMSPage() {
   }, []);
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>CMMS</h1>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">CMMS</h1>
         <Link href="/cmms/add" className="btn btn-primary">
           + Add Request
         </Link>
       </div>
 
-      {error ? <div style={{ color: "crimson", marginTop: 8 }}>{error}</div> : null}
+      {error ? <div className="alert alert-danger" style={{ marginTop: 8 }}>{error}</div> : null}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
         <span>From</span>
@@ -320,6 +320,7 @@ export default function CMMSPage() {
           }}
           type="date"
         />
+
         <span>To</span>
         <input
           value={to}
@@ -329,12 +330,38 @@ export default function CMMSPage() {
           }}
           type="date"
         />
+
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            marginLeft: 4,
+            fontSize: 13,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={hideResolved}
+            onChange={(e) => {
+              setPageIndex(0);
+              setHideResolved(e.target.checked);
+            }}
+          />
+          Hide Resolved
+        </label>
+
         <button
-          style={btnSecondary}
+          className="btn btn-secondary"
           onClick={() => {
             setPageIndex(0);
+            setPageSize(25);
+            setSortBy("requestedAt");
+            setSortDir("desc");
             setFilters({});
             setRange(defaultFromTo());
+            setHideResolved(true);
           }}
         >
           Clear Filters

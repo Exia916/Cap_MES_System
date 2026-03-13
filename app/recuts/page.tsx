@@ -220,15 +220,15 @@ export default function RecutsPage() {
       },
       {
         key: "edit",
-        header: "Edit",
+        header: "",
         sortable: false,
         filterable: false,
         serverSortable: false,
         render: (r) =>
           r.supervisorApproved || r.warehousePrinted ? (
-            <span style={{ color: "#6b7280" }}>Locked</span>
+            <span className="text-soft">Locked</span>
           ) : (
-            <Link href={`/recuts/${r.id}/edit`} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>
+            <Link href={`/recuts/${r.id}/edit`} className="btn btn-primary btn-sm">
               Edit
             </Link>
           ),
@@ -246,16 +246,13 @@ export default function RecutsPage() {
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Recuts</h1>
-          <p style={{ margin: "8px 0 0", color: "#6b7280" }}>
-            Your submitted recut requests.
-          </p>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <div className="page-header-title-wrap">
+          <h1 className="page-title">Recuts</h1>
+          <p className="page-subtitle">Your submitted recut requests.</p>
         </div>
-
-        <Link href="/recuts/add" style={btnSecondary}>
+        <Link href="/recuts/add" className="btn btn-primary">
           + New Recut Request
         </Link>
       </div>
@@ -304,19 +301,6 @@ export default function RecutsPage() {
     </div>
   );
 }
-
-const btnSecondary: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  textDecoration: "none",
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  color: "#111827",
-  fontWeight: 600,
-};
 
 const filterSelect: React.CSSProperties = {
   width: "100%",
