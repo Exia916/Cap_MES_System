@@ -60,27 +60,27 @@ export default function LoginPage() {
                 />
                 <div className="text-white">
                   <div className="text-lg font-semibold tracking-tight">Cap America</div>
-                  <div className="text-xs text-white/70">Cap MES System</div>
+                  <div className="text-xs text-white/70">CAP | Cap Application Platform</div>
                 </div>
               </div>
 
               <h2 className="mt-10 text-3xl font-semibold text-white leading-tight">
-                Production tracking,
+                Order visibility,
                 <br />
                 made simple.
               </h2>
               <p className="mt-3 text-sm text-white/70 max-w-sm">
-                Fast entry. Clear visibility. Role-based views for Production, QC, Emblem, and Laser.
+                Fast entry. Clear visibility. Role-based views for Production, Maintenance, Customer Service, and Sales.
               </p>
 
               <div className="mt-8 grid grid-cols-2 gap-3 text-xs text-white/75">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="font-semibold text-white">Daily Entry</div>
+                  <div className="font-semibold text-white">Daily Production Entries</div>
                   <div className="mt-1 text-white/70">Quick submission flow</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="font-semibold text-white">Manager Views</div>
-                  <div className="mt-1 text-white/70">All-module rollups</div>
+                  <div className="font-semibold text-white">Order Views</div>
+                  <div className="mt-1 text-white/70">All-module rollups, plus SBT lookups</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                   <div className="font-semibold text-white">QC & Recut</div>
@@ -111,15 +111,15 @@ export default function LoginPage() {
               />
               <hr className="my-6 w-full border-gray-200" />
                   <div className="mt-3 text-center">
-                  <div className="text-xl font-semibold text-gray-900">Cap MES System</div>
-                  <div className="text-xs text-gray-500">Production Management Portal</div>
+                  <div className="text-xl font-semibold text-gray-900">CAP</div>
+                  <div className="text-xs text-gray-500">Cap Application Platform</div>
                 </div>
               </div>
 
               <div className="hidden md:block mb-6">
                 <div className="text-2xl font-semibold text-gray-900">Sign in</div>
                 <div className="text-sm text-gray-500 mt-1">
-                  Use your Cap MES credentials.
+                  Use your CAP credentials.
                 </div>
               </div>
 

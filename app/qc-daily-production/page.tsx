@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 function ymdChicago(d: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -195,15 +195,10 @@ export default function QCDailyProductionPage() {
     }
   }
 
-  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
-
-    // reset the date range back to default (Last 30)
     setEntryDateFrom(def.from);
     setEntryDateTo(def.to);
-
-    // optional but usually expected for "Clear All"
     setSortBy("entryTs");
     setSortDir("desc");
     setPageIndex(0);
@@ -222,15 +217,24 @@ export default function QCDailyProductionPage() {
         sortable: true,
         filterRender: (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input style={filterInput} type="date" value={entryDateFrom} onChange={(e) => setEntryDateFrom(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateFrom}
+              onChange={(e) => setEntryDateFrom(e.target.value)}
+            />
             <span style={{ fontSize: 12, opacity: 0.7 }}>–</span>
-            <input style={filterInput} type="date" value={entryDateTo} onChange={(e) => setEntryDateTo(e.target.value)} />
+            <input
+              style={filterInput}
+              type="date"
+              value={entryDateTo}
+              onChange={(e) => setEntryDateTo(e.target.value)}
+            />
           </div>
         ),
         render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
         getSearchText: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
       },
-
       {
         key: "name",
         header: "NAME",
@@ -240,7 +244,6 @@ export default function QCDailyProductionPage() {
         render: (r) => r.name ?? "",
         getSearchText: (r) => r.name ?? "",
       },
-
       {
         key: "salesOrderNumber",
         header: "SO",
@@ -250,7 +253,6 @@ export default function QCDailyProductionPage() {
         render: (r) => stripCommas(r.salesOrder ?? ""),
         getSearchText: (r) => stripCommas(r.salesOrder ?? ""),
       },
-
       {
         key: "lineCount",
         header: "LINES",
@@ -258,7 +260,6 @@ export default function QCDailyProductionPage() {
         render: (r) => r.lineCount ?? 0,
         getSearchText: (r) => String(r.lineCount ?? 0),
       },
-
       {
         key: "notes",
         header: "NOTES",
@@ -267,11 +268,23 @@ export default function QCDailyProductionPage() {
         render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
         getSearchText: (r) => r.notes ?? "",
       },
-
+      {
+        key: "view",
+        header: "",
+        render: (r) => (
+          <Link href={`/qc-daily-production/${r.id}`} className="btn btn-secondary btn-sm">
+            View
+          </Link>
+        ),
+      },
       {
         key: "edit",
         header: "",
-        render: (r) => <Link href={`/qc-daily-production/${r.id}/edit`}>Edit</Link>,
+        render: (r) => (
+          <Link href={`/qc-daily-production/${r.id}/edit`} className="btn btn-primary btn-sm">
+            Edit
+          </Link>
+        ),
       },
     ],
     [entryDateFrom, entryDateTo]
@@ -279,37 +292,36 @@ export default function QCDailyProductionPage() {
 
   const toolbar = (
     <>
-      <button type="button" onClick={clearFilters} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={clearFilters} className="btn btn-secondary" disabled={loading}>
         Clear Filters
       </button>
-
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} className="btn btn-secondary" disabled={loading}>
         Last 7
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} className="btn btn-secondary" disabled={loading}>
         Last 30
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} className="btn btn-secondary" disabled={loading}>
         Last 90
       </button>
-      <button type="button" onClick={() => applyRange(getRangeThisMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeThisMonth())} className="btn btn-secondary" disabled={loading}>
         This Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangePrevMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangePrevMonth())} className="btn btn-secondary" disabled={loading}>
         Prev Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangeToday())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeToday())} className="btn btn-secondary" disabled={loading}>
         Today Only
       </button>
     </>
   );
 
   return (
-    <div style={page}>
-      <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>QC Daily Production</h1>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">QC Daily Production</h1>
         <Link href="/qc-daily-production/add" className="btn btn-primary">
-        + Add Entry
+          + Add Entry
         </Link>
       </div>
 
@@ -335,24 +347,16 @@ export default function QCDailyProductionPage() {
         csvFilename="qc-daily-production.csv"
         rowToCsv={(r) => ({
           "Entry Date": fmtDateOnly(r.entryDate ?? r.entryTs),
-          "Name": r.name ?? "",
+          Name: r.name ?? "",
           "Employee #": stripCommas(r.employeeNumber ?? ""),
-          "SO": stripCommas(r.salesOrder ?? ""),
-          "Lines": r.lineCount ?? 0,
-          "Notes": r.notes ?? "",
+          SO: stripCommas(r.salesOrder ?? ""),
+          Lines: r.lineCount ?? 0,
+          Notes: r.notes ?? "",
         })}
       />
     </div>
   );
 }
-
-const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
-
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
 
 const filterInput: React.CSSProperties = {
   width: "100%",

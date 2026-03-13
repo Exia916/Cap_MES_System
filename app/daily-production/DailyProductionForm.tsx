@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type LocationOption = { value: string; label: string };
 type MachineOption = { value: string; label: string };
@@ -11,10 +11,7 @@ type Line = {
   embroideryLocation: string;
   stitches: string;
   pieces: string;
-
-  // ✅ Only used when Annex is checked
   jobberSamplesRan: string;
-
   is3d: boolean;
   isKnit: boolean;
   detailComplete: boolean;
@@ -64,17 +61,21 @@ function isWholeNumberString(v: string) {
   return /^\d+$/.test(s);
 }
 
+function isValidSalesOrderInput(v: string) {
+  const s = String(v ?? "").trim();
+  return /^\d{7}.*$/.test(s);
+}
+
 export default function DailyProductionForm(props: DailyProductionFormProps) {
   const { initialSubmissionId } = props;
 
   const router = useRouter();
-  const pathname = usePathname();
+  const isEditMode = !!initialSubmissionId;
 
   const [salesOrder, setSalesOrder] = useState("");
   const [machineNumber, setMachineNumber] = useState("");
   const [headerNotes, setHeaderNotes] = useState("");
 
-  // ✅ Annex header flag
   const [annex, setAnnex] = useState(false);
   const annexTouchedRef = useRef(false);
 
@@ -83,33 +84,24 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [machineOptions, setMachineOptions] = useState<MachineOption[]>([]);
 
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string>(initialSubmissionId ?? "");
-
-  // ✅ optional: keep last created id (does NOT switch to edit mode)
-  const [lastSavedSubmissionId, setLastSavedSubmissionId] = useState<string | null>(null);
-
   const [saving, setSaving] = useState(false);
+  const [loadingSubmission, setLoadingSubmission] = useState(!!initialSubmissionId);
 
-  // ✅ only for REAL server/runtime errors (not validation)
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  // ✅ field-level validation errors
   const [errors, setErrors] = useState<FormErrors>({});
 
   const canRemove = useMemo(() => lines.length > 1, [lines.length]);
 
-  // --- Refs for auto-scroll/focus ---
   const salesOrderRef = useRef<HTMLInputElement | null>(null);
   const detailRefs = useRef<(HTMLInputElement | null)[]>([]);
   const locRefs = useRef<(HTMLSelectElement | null)[]>([]);
   const stitchesRefs = useRef<(HTMLInputElement | null)[]>([]);
   const piecesRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const jobberRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // ---------------------------------------------------------------------------
-  // Styling helpers (matching your current form style)
-  // ---------------------------------------------------------------------------
   const errTextClass = "mt-1 text-xs text-red-600";
+
   function inputClass(isError: boolean) {
     return [
       "mt-1 w-full rounded border px-3 py-2 text-sm",
@@ -119,22 +111,19 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
   }
 
   useEffect(() => {
-  try {
-    const saved = localStorage.getItem("dp_last_machine");
-    if (saved && !machineNumber) setMachineNumber(saved);
-  } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+    try {
+      const saved = localStorage.getItem("dp_last_machine");
+      if (saved && !machineNumber) setMachineNumber(saved);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-useEffect(() => {
-  try {
-    if (machineNumber) localStorage.setItem("dp_last_machine", machineNumber);
-  } catch {}
-}, [machineNumber]);
+  useEffect(() => {
+    try {
+      if (machineNumber) localStorage.setItem("dp_last_machine", machineNumber);
+    } catch {}
+  }, [machineNumber]);
 
-  // ---------------------------------------------------------------------------
-  // Load dropdowns
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     (async () => {
       try {
@@ -154,9 +143,7 @@ useEffect(() => {
               : [];
 
         setLocationOptions(opts);
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
   }, []);
 
@@ -179,13 +166,10 @@ useEffect(() => {
               : [];
 
         setMachineOptions(opts);
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
   }, []);
 
-  // Auto-check Annex if logged-in user is in department "ANNEX EMBROIDERY"
   useEffect(() => {
     (async () => {
       try {
@@ -199,25 +183,20 @@ useEffect(() => {
         if (!annexTouchedRef.current) {
           setAnnex(shouldAnnex);
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Load an existing submission (edit mode)
-  // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!selectedSubmissionId) return;
+    if (!initialSubmissionId) return;
 
     (async () => {
       try {
+        setLoadingSubmission(true);
         setServerError(null);
         setSuccessMsg(null);
 
-        const submissionId = selectedSubmissionId;
-        const res = await fetch(`/api/daily-production-submission?id=${encodeURIComponent(submissionId)}`, {
+        const res = await fetch(`/api/daily-production-submission?id=${encodeURIComponent(initialSubmissionId)}`, {
           cache: "no-store",
         });
 
@@ -253,13 +232,12 @@ useEffect(() => {
         );
       } catch (err: any) {
         setServerError(err?.message ?? "Failed to load submission.");
+      } finally {
+        setLoadingSubmission(false);
       }
     })();
-  }, [selectedSubmissionId]);
+  }, [initialSubmissionId]);
 
-  // ---------------------------------------------------------------------------
-  // Line manipulation
-  // ---------------------------------------------------------------------------
   function updateLine(index: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
@@ -278,15 +256,13 @@ useEffect(() => {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Validation + error focus/scroll
-  // ---------------------------------------------------------------------------
   function validateClient(): FormErrors {
     const next: FormErrors = {};
 
-    // Sales order required and must be whole number
     if (!salesOrder.trim()) next.salesOrder = "Sales Order is required.";
-    else if (!isWholeNumberString(salesOrder)) next.salesOrder = "Sales Order must be a whole number.";
+    else if (!isValidSalesOrderInput(salesOrder)) {
+      next.salesOrder = "Sales Order must begin with 7 digits.";
+    }
 
     const lineErrors: LineFieldErrors[] = lines.map((l) => {
       const le: LineFieldErrors = {};
@@ -304,8 +280,9 @@ useEffect(() => {
 
       if (annex) {
         if (!String(l.jobberSamplesRan ?? "").trim()) le.jobberSamplesRan = "Jobber Samples Ran is required.";
-        else if (!isWholeNumberString(l.jobberSamplesRan))
+        else if (!isWholeNumberString(l.jobberSamplesRan)) {
           le.jobberSamplesRan = "Jobber Samples Ran must be a whole number.";
+        }
       }
 
       return le;
@@ -360,13 +337,15 @@ useEffect(() => {
           piecesRefs.current[i]?.focus();
           return;
         }
+        if (le.jobberSamplesRan) {
+          jobberRefs.current[i]?.scrollIntoView({ behavior: "smooth", block: "center" });
+          jobberRefs.current[i]?.focus();
+          return;
+        }
       }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Submit
-  // ---------------------------------------------------------------------------
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setServerError(null);
@@ -382,10 +361,10 @@ useEffect(() => {
 
     setSaving(true);
     try {
-      const isUpdate = !!selectedSubmissionId;
+      const isUpdate = isEditMode;
 
       const url = isUpdate
-        ? `/api/daily-production-submission?id=${encodeURIComponent(selectedSubmissionId)}`
+        ? `/api/daily-production-submission?id=${encodeURIComponent(initialSubmissionId || "")}`
         : "/api/daily-production-add";
 
       const method = isUpdate ? "PUT" : "POST";
@@ -420,31 +399,17 @@ useEffect(() => {
         return;
       }
 
-      // ✅ Success confirmation (and auto-hide)
       setSuccessMsg(isUpdate ? "Saved changes." : "Saved!");
       setErrors({});
       setTimeout(() => setSuccessMsg(null), 2500);
 
-      if (isUpdate) {
-        // stay in edit mode with the current data
-        return;
-      }
+      if (isUpdate) return;
 
-      // ✅ Keep last saved id for optional future use, but DO NOT switch to edit mode
-      if (data?.submissionId) setLastSavedSubmissionId(String(data.submissionId));
-
-      // ✅ ADD MODE: clear form for next entry
-      setSelectedSubmissionId(""); // ensure we remain in add mode
       setSalesOrder("");
       setMachineNumber("");
       setHeaderNotes("");
       setLines([blankLine()]);
-
-      // focus Sales Order
       setTimeout(() => salesOrderRef.current?.focus(), 50);
-
-      // Optional: navigate back to list page after add
-      // if (pathname?.includes("/daily-production/add")) router.push("/daily-production");
     } catch (err: any) {
       setServerError(err?.message ?? "Failed to save.");
     } finally {
@@ -452,262 +417,318 @@ useEffect(() => {
     }
   }
 
-  return (
-    <form onSubmit={onSubmit} className="space-y-6">
-      <div className="rounded border p-4 space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium">
-              Sales Order <span className="text-red-600">*</span>
-            </label>
-            <input
-              ref={salesOrderRef}
-              value={salesOrder}
-              onChange={(e) => {
-                setSalesOrder(e.target.value);
-                clearSalesOrderError();
-              }}
-              className={inputClass(!!errors.salesOrder)}
-              placeholder="1234567"
-              inputMode="numeric"
-            />
-            {errors.salesOrder ? <div className={errTextClass}>{errors.salesOrder}</div> : null}
-            <div className="mt-1 text-xs opacity-70">Sales Orders are 7 digits.</div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Machine</label>
-            {machineOptions.length > 0 ? (
-              <select value={machineNumber} onChange={(e) => setMachineNumber(e.target.value)} className={inputClass(false)}>
-                <option value="">Select…</option>
-                {machineOptions.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input value={machineNumber} onChange={(e) => setMachineNumber(e.target.value)} className={inputClass(false)} placeholder="Optional" />
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              id="annex"
-              type="checkbox"
-              checked={annex}
-              onChange={(e) => {
-                annexTouchedRef.current = true;
-                const checked = e.target.checked;
-                setAnnex(checked);
-
-                // If Annex is turned off, clear Jobber Samples Ran values + related errors
-                if (!checked) {
-                  setLines((prev) => prev.map((l) => ({ ...l, jobberSamplesRan: "" })));
-                  setErrors((prev) => {
-                    if (!prev.lines) return prev;
-                    const next = prev.lines.map((le) => ({ ...le, jobberSamplesRan: undefined }));
-                    return { ...prev, lines: next };
-                  });
-                }
-              }}
-            />
-            <label htmlFor="annex" className="text-sm font-medium select-none">
-              Annex
-            </label>
-          </div>
-
-          <div className="md:col-span-4">
-            <label className="block text-sm font-medium">Header Notes</label>
-            <input
-              value={headerNotes}
-              onChange={(e) => setHeaderNotes(e.target.value)}
-              className={inputClass(false)}
-              placeholder="Optional notes that apply to the whole submission"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded border p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold">Lines</h3>
-          <button type="button" onClick={addLine} className="rounded border px-3 py-1 text-sm">
-            + Add Line
+  if (loadingSubmission) {
+    return (
+      <>
+        <div className="mb-4">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => router.push("/daily-production")}
+          >
+            ← Back to List
           </button>
         </div>
+        <div className="rounded border p-4 text-sm">Loading submission…</div>
+      </>
+    );
+  }
 
-        <div className="mt-4 space-y-4">
-          {lines.map((line, idx) => {
-            const le = errors.lines?.[idx] ?? {};
-            return (
-              <div key={idx} className="rounded border p-4">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold">Line {idx + 1}</div>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(idx)}
-                    disabled={!canRemove}
-                    className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                </div>
-
-               <div className={`mt-3 grid grid-cols-1 gap-4 ${annex ? "md:grid-cols-7" : "md:grid-cols-6"}`}>
-  <div>
-    <label className="block text-sm font-medium">
-      Detail # <span className="text-red-600">*</span>
-    </label>
-    <input
-      ref={(el) => {
-        detailRefs.current[idx] = el;
-      }}
-      value={line.detailNumber}
-      onChange={(e) => {
-        updateLine(idx, { detailNumber: e.target.value });
-        clearLineFieldError(idx, "detailNumber");
-      }}
-      className={inputClass(!!le.detailNumber)}
-      placeholder="1"
-      inputMode="numeric"
-    />
-    {le.detailNumber ? <div className={errTextClass}>{le.detailNumber}</div> : null}
-  </div>
-
-  <div className={annex ? "md:col-span-2" : "md:col-span-2"}>
-    <label className="block text-sm font-medium">
-      Location <span className="text-red-600">*</span>
-    </label>
-    <select
-      ref={(el) => {
-        locRefs.current[idx] = el;
-      }}
-      value={line.embroideryLocation}
-      onChange={(e) => {
-        updateLine(idx, { embroideryLocation: e.target.value });
-        clearLineFieldError(idx, "embroideryLocation");
-      }}
-      className={inputClass(!!le.embroideryLocation)}
-    >
-      <option value="">Select…</option>
-      {locationOptions.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-    {le.embroideryLocation ? <div className={errTextClass}>{le.embroideryLocation}</div> : null}
-  </div>
-
-  <div>
-    <label className="block text-sm font-medium">
-      Stitches <span className="text-red-600">*</span>
-    </label>
-    <input
-      ref={(el) => {
-        stitchesRefs.current[idx] = el;
-      }}
-      value={line.stitches}
-      onChange={(e) => {
-        updateLine(idx, { stitches: e.target.value });
-        clearLineFieldError(idx, "stitches");
-      }}
-      className={inputClass(!!le.stitches)}
-      placeholder="3200"
-      inputMode="numeric"
-    />
-    {le.stitches ? <div className={errTextClass}>{le.stitches}</div> : null}
-  </div>
-
-  <div>
-    <label className="block text-sm font-medium">
-      Pieces <span className="text-red-600">*</span>
-    </label>
-    <input
-      ref={(el) => {
-        piecesRefs.current[idx] = el;
-      }}
-      value={line.pieces}
-      onChange={(e) => {
-        updateLine(idx, { pieces: e.target.value });
-        clearLineFieldError(idx, "pieces");
-      }}
-      className={inputClass(!!le.pieces)}
-      placeholder="100"
-      inputMode="numeric"
-    />
-    {le.pieces ? <div className={errTextClass}>{le.pieces}</div> : null}
-  </div>
-
-  {/* ✅ Inline column when Annex is enabled */}
-  {annex ? (
-    <div>
-      <label className="block text-sm font-medium">
-        Samples Ran <span className="text-red-600">*</span>
-      </label>
-      <input
-        value={line.jobberSamplesRan}
-        onChange={(e) => {
-          updateLine(idx, { jobberSamplesRan: e.target.value });
-          clearLineFieldError(idx, "jobberSamplesRan");
-        }}
-        className={inputClass(!!le.jobberSamplesRan)}
-        placeholder="0"
-        inputMode="numeric"
-      />
-      {le.jobberSamplesRan ? <div className={errTextClass}>{le.jobberSamplesRan}</div> : null}
-    </div>
-  ) : null}
-
-  <div className={`flex items-end gap-4 ${annex ? "md:col-span-7" : "md:col-span-6"}`}>
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={line.is3d} onChange={(e) => updateLine(idx, { is3d: e.target.checked })} />
-      <span className="text-sm">3D</span>
-    </label>
-
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={line.isKnit} onChange={(e) => updateLine(idx, { isKnit: e.target.checked })} />
-      <span className="text-sm">Knit</span>
-    </label>
-
-    <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        checked={line.detailComplete}
-        onChange={(e) => updateLine(idx, { detailComplete: e.target.checked })}
-      />
-      <span className="text-sm">Complete</span>
-    </label>
-  </div>
-
-  <div className={annex ? "md:col-span-7" : "md:col-span-6"}>
-    <label className="block text-sm font-medium">Line Notes</label>
-    <input
-      value={line.notes}
-      onChange={(e) => updateLine(idx, { notes: e.target.value })}
-      className={inputClass(false)}
-      placeholder="Optional"
-    />
-  </div>
-</div>
-              </div>
-            );
-          })}
-        </div>
+  return (
+    <>
+      <div className="mb-4">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => router.push("/daily-production")}
+        >
+          ← Back to List
+        </button>
       </div>
 
-      {serverError ? (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{serverError}</div>
-      ) : null}
+      <form onSubmit={onSubmit} className="space-y-6">
+        <div className="rounded border p-4 space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+            <div className="md:col-span-6">
+              <label className="block text-sm font-medium">
+                Sales Order <span className="text-red-600">*</span>
+              </label>
+              <input
+                ref={salesOrderRef}
+                value={salesOrder}
+                onChange={(e) => {
+                  setSalesOrder(e.target.value);
+                  clearSalesOrderError();
+                }}
+                className={inputClass(!!errors.salesOrder)}
+                placeholder="1234567 or 1234567.001"
+              />
+              {errors.salesOrder ? <div className={errTextClass}>{errors.salesOrder}</div> : null}
+              <div className="mt-1 text-xs opacity-70">
+                Enter the order reference. The system uses the first 7 digits as the base Sales Order.
+              </div>
+            </div>
 
-      {successMsg ? (
-        <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-700">{successMsg}</div>
-      ) : null}
+            <div className="md:col-span-3">
+              <label className="block text-sm font-medium">Machine</label>
+              {machineOptions.length > 0 ? (
+                <select
+                  value={machineNumber}
+                  onChange={(e) => setMachineNumber(e.target.value)}
+                  className={inputClass(false)}
+                >
+                  <option value="">Select…</option>
+                  {machineOptions.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={machineNumber}
+                  onChange={(e) => setMachineNumber(e.target.value)}
+                  className={inputClass(false)}
+                  placeholder="Optional"
+                />
+              )}
+            </div>
 
-      <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-        {saving ? "Saving..." : "Save"}
-      </button>
-    </form>
+            <div className="md:col-span-3 flex items-center md:pt-7">
+              <label className="inline-flex items-center gap-2 text-sm font-medium select-none">
+                <input
+                  id="annex"
+                  type="checkbox"
+                  checked={annex}
+                  onChange={(e) => {
+                    annexTouchedRef.current = true;
+                    const checked = e.target.checked;
+                    setAnnex(checked);
+
+                    if (!checked) {
+                      setLines((prev) => prev.map((l) => ({ ...l, jobberSamplesRan: "" })));
+                      setErrors((prev) => {
+                        if (!prev.lines) return prev;
+                        const next = prev.lines.map((le) => ({ ...le, jobberSamplesRan: undefined }));
+                        return { ...prev, lines: next };
+                      });
+                    }
+                  }}
+                />
+                <span>Annex</span>
+              </label>
+            </div>
+
+            <div className="md:col-span-12">
+              <label className="block text-sm font-medium">Header Notes</label>
+              <input
+                value={headerNotes}
+                onChange={(e) => setHeaderNotes(e.target.value)}
+                className={inputClass(false)}
+                placeholder="Optional notes that apply to the whole submission"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded border p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold">Lines</h3>
+            <button type="button" onClick={addLine} className="btn btn-secondary btn-sm">
+              + Add Line
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            {lines.map((line, idx) => {
+              const le = errors.lines?.[idx] ?? {};
+
+              return (
+                <div key={idx} className="rounded border p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold">Line {idx + 1}</div>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(idx)}
+                      disabled={!canRemove}
+                      className="btn btn-danger btn-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  <div className={`mt-3 grid grid-cols-1 gap-4 ${annex ? "md:grid-cols-12" : "md:grid-cols-12"}`}>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium">
+                        Detail # <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        ref={(el) => {
+                          detailRefs.current[idx] = el;
+                        }}
+                        value={line.detailNumber}
+                        onChange={(e) => {
+                          updateLine(idx, { detailNumber: e.target.value });
+                          clearLineFieldError(idx, "detailNumber");
+                        }}
+                        className={inputClass(!!le.detailNumber)}
+                        placeholder="1"
+                        inputMode="numeric"
+                      />
+                      {le.detailNumber ? <div className={errTextClass}>{le.detailNumber}</div> : null}
+                    </div>
+
+                    <div className={annex ? "md:col-span-3" : "md:col-span-4"}>
+                      <label className="block text-sm font-medium">
+                        Location <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        ref={(el) => {
+                          locRefs.current[idx] = el;
+                        }}
+                        value={line.embroideryLocation}
+                        onChange={(e) => {
+                          updateLine(idx, { embroideryLocation: e.target.value });
+                          clearLineFieldError(idx, "embroideryLocation");
+                        }}
+                        className={inputClass(!!le.embroideryLocation)}
+                      >
+                        <option value="">Select…</option>
+                        {locationOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      {le.embroideryLocation ? <div className={errTextClass}>{le.embroideryLocation}</div> : null}
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium">
+                        Stitches <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        ref={(el) => {
+                          stitchesRefs.current[idx] = el;
+                        }}
+                        value={line.stitches}
+                        onChange={(e) => {
+                          updateLine(idx, { stitches: e.target.value });
+                          clearLineFieldError(idx, "stitches");
+                        }}
+                        className={inputClass(!!le.stitches)}
+                        placeholder="3200"
+                        inputMode="numeric"
+                      />
+                      {le.stitches ? <div className={errTextClass}>{le.stitches}</div> : null}
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium">
+                        Pieces <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        ref={(el) => {
+                          piecesRefs.current[idx] = el;
+                        }}
+                        value={line.pieces}
+                        onChange={(e) => {
+                          updateLine(idx, { pieces: e.target.value });
+                          clearLineFieldError(idx, "pieces");
+                        }}
+                        className={inputClass(!!le.pieces)}
+                        placeholder="100"
+                        inputMode="numeric"
+                      />
+                      {le.pieces ? <div className={errTextClass}>{le.pieces}</div> : null}
+                    </div>
+
+                    {annex ? (
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium">
+                          Jobber Samples Ran <span className="text-red-600">*</span>
+                        </label>
+                        <input
+                          ref={(el) => {
+                            jobberRefs.current[idx] = el;
+                          }}
+                          value={line.jobberSamplesRan}
+                          onChange={(e) => {
+                            updateLine(idx, { jobberSamplesRan: e.target.value });
+                            clearLineFieldError(idx, "jobberSamplesRan");
+                          }}
+                          className={inputClass(!!le.jobberSamplesRan)}
+                          placeholder="0"
+                          inputMode="numeric"
+                        />
+                        {le.jobberSamplesRan ? <div className={errTextClass}>{le.jobberSamplesRan}</div> : null}
+                      </div>
+                    ) : null}
+
+                    <div className={annex ? "md:col-span-1" : "md:col-span-4"}>
+                      <label className="block text-sm font-medium invisible">Flags</label>
+                      <div className={`flex flex-wrap items-center gap-4 ${annex ? "justify-start" : ""}`}>
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={line.is3d}
+                            onChange={(e) => updateLine(idx, { is3d: e.target.checked })}
+                          />
+                          <span>3D</span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={line.isKnit}
+                            onChange={(e) => updateLine(idx, { isKnit: e.target.checked })}
+                          />
+                          <span>Knit</span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={line.detailComplete}
+                            onChange={(e) => updateLine(idx, { detailComplete: e.target.checked })}
+                          />
+                          <span>Detail Complete</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-12">
+                      <label className="block text-sm font-medium">Line Notes</label>
+                      <input
+                        value={line.notes}
+                        onChange={(e) => updateLine(idx, { notes: e.target.value })}
+                        className={inputClass(false)}
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {serverError ? (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {serverError}
+          </div>
+        ) : null}
+
+        {successMsg ? (
+          <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+            {successMsg}
+          </div>
+        ) : null}
+
+        <button type="submit" disabled={saving} className="btn btn-primary">
+          {saving ? "Saving..." : isEditMode ? "Save Changes" : "Save"}
+        </button>
+      </form>
+    </>
   );
 }

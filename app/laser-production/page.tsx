@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import DataTable, { btnSecondary, type Column, type SortDir } from "@/components/DataTable";
+import DataTable, { type Column, type SortDir } from "@/components/DataTable";
 
 function ymdChicago(d: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -18,7 +18,6 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// ✅ Display helper: show YYYY-MM-DD only (never time)
 function fmtDateOnly(v: any): string {
   if (v === null || v === undefined) return "";
   const s = String(v);
@@ -29,6 +28,11 @@ function fmtDateOnly(v: any): string {
   const dt = new Date(s);
   if (Number.isNaN(dt.getTime())) return s;
   return ymdChicago(dt);
+}
+
+function stripCommas(v: any) {
+  const s = v === null || v === undefined ? "" : String(v);
+  return s.replace(/,/g, "");
 }
 
 function addDays(d: Date, days: number): Date {
@@ -82,8 +86,6 @@ type Row = {
   leatherStyleColor: string | null;
   piecesCut: number | null;
   notes: string | null;
-
-  // ✅ client-only calculated field
   totalPiecesPerDay?: number;
 };
 
@@ -98,7 +100,7 @@ type SortBy =
 
 type Filters = {
   name: string;
-  salesOrder: string; // starts-with
+  salesOrder: string;
   leatherStyleColor: string;
   notes: string;
 };
@@ -154,8 +156,9 @@ export default function LaserProductionListPage() {
 
     if (debouncedFilters.name.trim()) sp.set("name", debouncedFilters.name.trim());
     if (debouncedFilters.salesOrder.trim()) sp.set("salesOrder", debouncedFilters.salesOrder.trim());
-    if (debouncedFilters.leatherStyleColor.trim())
+    if (debouncedFilters.leatherStyleColor.trim()) {
       sp.set("leatherStyleColor", debouncedFilters.leatherStyleColor.trim());
+    }
     if (debouncedFilters.notes.trim()) sp.set("notes", debouncedFilters.notes.trim());
 
     return sp.toString();
@@ -175,7 +178,6 @@ export default function LaserProductionListPage() {
 
       const rawRows: Row[] = Array.isArray(data?.entries) ? data.entries : [];
 
-      // ✅ compute Total Pieces Per Day per entryDate (within currently loaded rows)
       const totalsByDate = new Map<string, number>();
       for (const r of rawRows) {
         const key = fmtDateOnly(r.entryDate ?? r.entryTs);
@@ -219,15 +221,10 @@ export default function LaserProductionListPage() {
     }
   }
 
-  // ✅ Clear All: clears text filters AND resets date range back to default
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
-
-    // reset the date range back to default (Last 30)
     setEntryDateFrom(def.from);
     setEntryDateTo(def.to);
-
-    // optional but usually expected for "Clear All"
     setSortBy("entryTs");
     setSortDir("desc");
     setPageIndex(0);
@@ -262,8 +259,8 @@ export default function LaserProductionListPage() {
           </div>
         ),
         render: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
+        getSearchText: (r) => fmtDateOnly(r.entryDate ?? r.entryTs),
       },
-
       {
         key: "name",
         header: "NAME",
@@ -271,6 +268,7 @@ export default function LaserProductionListPage() {
         filterable: true,
         placeholder: "Name",
         render: (r) => r.name ?? "",
+        getSearchText: (r) => r.name ?? "",
       },
       {
         key: "salesOrder",
@@ -278,7 +276,8 @@ export default function LaserProductionListPage() {
         sortable: true,
         filterable: true,
         placeholder: "SO (starts with)",
-        render: (r) => r.salesOrder ?? "",
+        render: (r) => stripCommas(r.salesOrder ?? ""),
+        getSearchText: (r) => stripCommas(r.salesOrder ?? ""),
       },
       {
         key: "leatherStyleColor",
@@ -287,61 +286,85 @@ export default function LaserProductionListPage() {
         filterable: true,
         placeholder: "Style/Color",
         render: (r) => r.leatherStyleColor ?? "",
+        getSearchText: (r) => r.leatherStyleColor ?? "",
       },
-      { key: "piecesCut", header: "PIECES CUT", sortable: true, render: (r) => r.piecesCut ?? 0 },
-
+      {
+        key: "piecesCut",
+        header: "PIECES CUT",
+        sortable: true,
+        render: (r) => r.piecesCut ?? 0,
+        getSearchText: (r) => String(r.piecesCut ?? 0),
+      },
       {
         key: "totalPiecesPerDay",
         header: "TOTAL PIECES PER DAY",
         sortable: true,
+        serverSortable: false,
         render: (r) => r.totalPiecesPerDay ?? 0,
+        getSearchText: (r) => String(r.totalPiecesPerDay ?? 0),
       },
-
       {
         key: "notes",
         header: "NOTES",
         filterable: true,
         placeholder: "Notes",
         render: (r) => <span style={{ whiteSpace: "normal" }}>{r.notes ?? ""}</span>,
+        getSearchText: (r) => r.notes ?? "",
       },
-      { key: "edit", header: "", render: (r) => <Link href={`/laser-production/${r.id}/edit`}>Edit</Link> },
+      {
+        key: "view",
+        header: "",
+        render: (r) => (
+          <Link href={`/laser-production/${r.id}`} className="btn btn-secondary btn-sm">
+            View
+          </Link>
+        ),
+      },
+      {
+        key: "edit",
+        header: "",
+        render: (r) => (
+          <Link href={`/laser-production/${r.id}/edit`} className="btn btn-primary btn-sm">
+            Edit
+          </Link>
+        ),
+      },
     ],
     [entryDateFrom, entryDateTo]
   );
 
   const toolbar = (
     <>
-      <button type="button" onClick={clearFilters} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={clearFilters} className="btn btn-secondary" disabled={loading}>
         Clear Filters
       </button>
-
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(7))} className="btn btn-secondary" disabled={loading}>
         Last 7
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(30))} className="btn btn-secondary" disabled={loading}>
         Last 30
       </button>
-      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeLastNDays(90))} className="btn btn-secondary" disabled={loading}>
         Last 90
       </button>
-      <button type="button" onClick={() => applyRange(getRangeThisMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeThisMonth())} className="btn btn-secondary" disabled={loading}>
         This Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangePrevMonth())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangePrevMonth())} className="btn btn-secondary" disabled={loading}>
         Prev Month
       </button>
-      <button type="button" onClick={() => applyRange(getRangeToday())} style={btnSecondary} disabled={loading}>
+      <button type="button" onClick={() => applyRange(getRangeToday())} className="btn btn-secondary" disabled={loading}>
         Today Only
       </button>
     </>
   );
 
   return (
-    <div style={page}>
-      <div style={headerRow}>
-        <h1 style={{ margin: 0 }}>Laser Production</h1>
+    <div className="page-shell-wide">
+      <div className="page-header">
+        <h1 className="page-title">Laser Production</h1>
         <Link href="/laser-production/add" className="btn btn-primary">
-        + Add Entry
+          + Add Entry
         </Link>
       </div>
 
@@ -363,18 +386,21 @@ export default function LaserProductionListPage() {
         toolbar={toolbar}
         rowKey={(r) => r.id}
         emptyText="No laser entries found."
+        globalSearchPlaceholder="Search current view… (SO, style/color, name, notes)"
+        csvFilename="laser-production.csv"
+        rowToCsv={(r) => ({
+          "Entry Date": fmtDateOnly(r.entryDate ?? r.entryTs),
+          Name: r.name ?? "",
+          SO: stripCommas(r.salesOrder ?? ""),
+          "Leather Style/Color": r.leatherStyleColor ?? "",
+          "Pieces Cut": r.piecesCut ?? 0,
+          "Total Pieces Per Day": r.totalPiecesPerDay ?? 0,
+          Notes: r.notes ?? "",
+        })}
       />
     </div>
   );
 }
-
-const page: React.CSSProperties = { padding: 24, maxWidth: "100%" };
-
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
 
 const filterInput: React.CSSProperties = {
   width: "100%",

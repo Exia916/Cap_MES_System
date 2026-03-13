@@ -31,17 +31,22 @@ function ymdChicago(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-const ALLOWED_SORT = new Set(["entryTs", "entryDate", "name", "salesOrder", "lineCount", "totalPieces"]);
+const ALLOWED_SORT = new Set([
+  "entryTs",
+  "entryDate",
+  "name",
+  "salesOrder",
+  "lineCount",
+  "totalPieces",
+]);
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ Use the same auth helper as the rest of the app
     const auth = await getAuthFromRequest(req as any);
     if (!auth) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
 
     const sp = req.nextUrl.searchParams;
 
-    // ----- Date range (default last 30 days)
     const rawFrom = sp.get("entryDateFrom")?.trim() ?? "";
     const rawTo = sp.get("entryDateTo")?.trim() ?? "";
 
@@ -57,24 +62,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json<Resp>({ error: "Invalid date range" }, { status: 400 });
     }
 
-    // ----- Paging
     const limit = clampInt(sp.get("limit"), 25, 1, 200);
     const offset = clampInt(sp.get("offset"), 0, 0, 1_000_000);
 
-    // ----- Sort
     const sortByRaw = (sp.get("sortBy") ?? "entryTs").trim();
     const sortBy = ALLOWED_SORT.has(sortByRaw) ? sortByRaw : "entryTs";
     const sortDir = sp.get("sortDir") === "asc" ? "ASC" : "DESC";
 
-    // ----- Filters
     const name = sp.get("name")?.trim();
     const salesOrder = sp.get("salesOrder")?.trim();
+    const detailNumber = sp.get("detailNumber")?.trim();
     const notes = sp.get("notes")?.trim();
 
     const params: any[] = [entryDateFrom, entryDateTo];
     let where = `s.entry_date BETWEEN $1::date AND $2::date`;
 
-    // ✅ Non-admin: restrict to their own submissions
     if (String(auth.role || "").toUpperCase() !== "ADMIN") {
       params.push(Number(auth.employeeNumber));
       where += ` AND s.employee_number = $${params.length}`;
@@ -87,12 +89,24 @@ export async function GET(req: NextRequest) {
 
     if (salesOrder) {
       params.push(`${salesOrder}%`);
-      where += ` AND COALESCE(s.sales_order::text,'') LIKE $${params.length}`;
+      where += ` AND COALESCE(s.sales_order::text, '') LIKE $${params.length}`;
+    }
+
+    if (detailNumber) {
+      params.push(`%${detailNumber}%`);
+      where += `
+        AND EXISTS (
+          SELECT 1
+          FROM emblem_daily_submission_lines ldx
+          WHERE ldx.submission_id = s.id
+            AND COALESCE(ldx.detail_number::text, '') ILIKE $${params.length}
+        )
+      `;
     }
 
     if (notes) {
       params.push(`%${notes}%`);
-      where += ` AND COALESCE(s.notes,'') ILIKE $${params.length}`;
+      where += ` AND COALESCE(s.notes, '') ILIKE $${params.length}`;
     }
 
     const ORDER_MAP: Record<string, string> = {
@@ -124,7 +138,14 @@ export async function GET(req: NextRequest) {
           s.employee_number AS "employeeNumber",
           s.notes,
           COUNT(l.id)::int AS "lineCount",
-          COALESCE(SUM(l.pieces),0)::int AS "totalPieces"
+          COALESCE(SUM(l.pieces), 0)::int AS "totalPieces",
+          NULLIF(
+            string_agg(
+              DISTINCT COALESCE(l.detail_number::text, ''),
+              ', ' ORDER BY COALESCE(l.detail_number::text, '')
+            ),
+            ''
+          ) AS "detailNumbers"
         FROM emblem_daily_submissions s
         LEFT JOIN emblem_daily_submission_lines l
           ON l.submission_id = s.id
@@ -145,7 +166,10 @@ export async function GET(req: NextRequest) {
     const totalCount = rows.length ? Number(rows[0].totalCount) : 0;
     const clean = rows.map(({ totalCount: _tc, ...rest }: any) => rest);
 
-    return NextResponse.json<Resp>({ submissions: clean, totalCount, limit, offset }, { status: 200 });
+    return NextResponse.json<Resp>(
+      { submissions: clean, totalCount, limit, offset },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("emblem-production-submission-list GET error:", err);
     return NextResponse.json<Resp>({ error: err?.message || "Server error" }, { status: 500 });

@@ -55,14 +55,18 @@ export default function AdminHomePage() {
       <p className="mt-1 text-sm text-gray-600">Administrative options.</p>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Link className="pill" href="/admin/users">
-          → Admin Users
-        </Link>
+  <Link className="pill" href="/admin/users">
+    → Admin Users
+  </Link>
 
-        <Link className="pill" href="/admin/master-data">
-          → Master Data (Lists)
-        </Link>
-      </div>
+  <Link className="pill" href="/admin/master-data">
+    → Master Data (Lists)
+  </Link>
+
+  <Link className="pill" href="/admin/logs">
+    → Application Logs
+  </Link>
+</div>
 
       <style jsx global>{`
         .pill {

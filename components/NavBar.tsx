@@ -18,9 +18,10 @@ type Me = {
 };
 
 type MenuItem = {
-  href: string;
+  href?: string;
   label: string;
   show?: boolean;
+  kind?: "link" | "section";
 };
 
 type OpenMenu =
@@ -45,16 +46,13 @@ export default function NavBar() {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const menusWrapRef = useRef<HTMLDivElement | null>(null);
 
-  // wide (≥1400): show all dropdowns on one row
-  // medium (900–1399): collapse Maintenance / Manager / Admin into More
-  // small (<900): collapse Home + Recut + Maintenance / Manager / Admin into More
   const [navMode, setNavMode] = useState<"wide" | "medium" | "small">("wide");
 
   useEffect(() => {
     function compute() {
       const w = window.innerWidth || 1400;
       if (w < 900) setNavMode("small");
-      else if (w < 1400) setNavMode("medium"); // ← raised from 1200 to 1400
+      else if (w < 1400) setNavMode("medium");
       else setNavMode("wide");
     }
     compute();
@@ -154,6 +152,8 @@ export default function NavBar() {
       role === "SUPERVISOR" ||
       role === "WAREHOUSE");
 
+  const canSeeCmmsMasterData = meLoaded && (isAdmin || role === "TECH");
+
   function runGlobalSearch() {
     const q = globalQ.trim();
     if (!q) return;
@@ -166,9 +166,6 @@ export default function NavBar() {
     if (e.key === "Escape") setOpenMenu(null);
   }
 
-  // ----------------------------
-  // Menu definitions
-  // ----------------------------
   const productionItems: MenuItem[] = [
     { href: "/daily-production", label: "Embroidery" },
     { href: "/qc-daily-production", label: "QC" },
@@ -183,8 +180,18 @@ export default function NavBar() {
   ].filter((x) => x.show !== false);
 
   const maintenanceItems: MenuItem[] = [
+    { kind: "section", label: "Operations", show: canSeeRepairRequests || canSeeCMMS },
     { href: "/cmms/repair-requests", label: "Repair Requests", show: canSeeRepairRequests },
     { href: "/cmms", label: "CMMS", show: canSeeCMMS },
+
+    { kind: "section", label: "Configuration", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/priorities", label: "CMMS Priorities", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/statuses", label: "CMMS Statuses", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/issue_catalog", label: "Issue Catalog", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/techs", label: "CMMS Techs", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/wo_types", label: "Work Order Types", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/cmms_departments", label: "CMMS Departments", show: canSeeCmmsMasterData },
+    { href: "/admin/master-data/cmms_assets", label: "CMMS Assets", show: canSeeCmmsMasterData },
   ].filter((x) => x.show !== false);
 
   const managerItems: MenuItem[] = [
@@ -192,18 +199,19 @@ export default function NavBar() {
   ].filter((x) => x.show !== false);
 
   const adminItems: MenuItem[] = [
-    { href: "/admin", label: "Admin", show: meLoaded && isAdmin },
+    { kind: "section", label: "Administration", show: meLoaded && isAdmin },
+    { href: "/admin", label: "Admin Home", show: meLoaded && isAdmin },
+    { href: "/admin/users", label: "Admin Users", show: meLoaded && isAdmin },
+    { href: "/admin/master-data", label: "Master Data (Lists)", show: meLoaded && isAdmin },
+    { href: "/admin/logs", label: "Application Logs", show: meLoaded && isAdmin },
   ].filter((x) => x.show !== false);
 
-  const productionActive = productionItems.some((i) => isActive(pathname, i.href));
-  const recutActive = recutItems.some((i) => isActive(pathname, i.href));
-  const maintenanceActive = maintenanceItems.some((i) => isActive(pathname, i.href));
-  const managerActive = managerItems.some((i) => isActive(pathname, i.href));
-  const adminActive = adminItems.some((i) => isActive(pathname, i.href));
+  const productionActive = productionItems.some((i) => i.href && isActive(pathname, i.href));
+  const recutActive = recutItems.some((i) => i.href && isActive(pathname, i.href));
+  const maintenanceActive = maintenanceItems.some((i) => i.href && isActive(pathname, i.href));
+  const managerActive = managerItems.some((i) => i.href && isActive(pathname, i.href));
+  const adminActive = adminItems.some((i) => i.href && isActive(pathname, i.href));
 
-  // ----------------------------
-  // Quick Action: "+ New"
-  // ----------------------------
   const quickAction = useMemo(() => {
     if (pathname.startsWith("/daily-production")) {
       return { href: "/daily-production/add", label: "New Embroidery Entry" };
@@ -293,12 +301,9 @@ export default function NavBar() {
 
   return (
     <nav style={nav}>
-      {/* Single row — no flex wrap */}
       <div ref={menusWrapRef} style={navInner}>
-
-        {/* LEFT: brand + nav links */}
         <div style={left}>
-          <Link href="/dashboard" style={brandWrap} title="Cap America - Cap MES">
+          <Link href="/dashboard" style={brandWrap} title="Cap America - Cap Application Platform">
             <Image
               src="/brand/ca-mark.jpg"
               alt="Cap America"
@@ -307,8 +312,7 @@ export default function NavBar() {
               priority
               style={{ objectFit: "contain" }}
             />
-            {/* ↓ Subtitle removed — reduces brand width ~100px */}
-            <span style={brandTitle}>Cap MES</span>
+            <span style={brandTitle}>CAP | Cap Application Platform</span>
           </Link>
 
           {showHomeAsPrimary ? <NavLink href="/dashboard" label="Home" pathname={pathname} /> : null}
@@ -393,7 +397,6 @@ export default function NavBar() {
           ) : null}
         </div>
 
-        {/* RIGHT: search + "+ New" grouped together, then user pill alone */}
         <div style={right}>
           {meLoaded && canGlobalSearch ? (
             <div
@@ -419,7 +422,6 @@ export default function NavBar() {
             </div>
           ) : null}
 
-          {/* "+ New" lives next to search, both action-oriented */}
           {quickAction ? (
             <Link
               href={quickAction.href}
@@ -431,7 +433,6 @@ export default function NavBar() {
             </Link>
           ) : null}
 
-          {/* User pill alone on the far right */}
           <div style={{ position: "relative" }}>
             <button
               type="button"
@@ -446,7 +447,9 @@ export default function NavBar() {
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <span style={userPillText}>{meLoaded ? display || "Unknown" : "…"}</span>
-                <span style={chev} aria-hidden>▾</span>
+                <span style={chev} aria-hidden>
+                  ▾
+                </span>
               </span>
             </button>
 
@@ -480,10 +483,6 @@ export default function NavBar() {
   );
 }
 
-/* ---------------------------- */
-/* Sub-components                */
-/* ---------------------------- */
-
 function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
   const active = isActive(pathname, href);
   return (
@@ -512,6 +511,8 @@ function Dropdown({
   onToggle: () => void;
   onNavigate: () => void;
 }) {
+  const visibleItems = items.filter((it) => it.show !== false);
+
   return (
     <div style={{ position: "relative" }}>
       <button
@@ -532,18 +533,35 @@ function Dropdown({
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {label}
-          <span style={chev} aria-hidden>▾</span>
+          <span style={chev} aria-hidden>
+            ▾
+          </span>
         </span>
       </button>
 
       {open ? (
         <div style={menuPanel} role="menu" aria-label={`${label} menu`}>
-          {items.map((it) => {
-            const a = isActive(pathname, it.href);
+          {visibleItems.map((it, idx) => {
+            if (it.kind === "section") {
+              const hasPrevVisibleLink = visibleItems
+                .slice(0, idx)
+                .some((x) => x.kind !== "section");
+
+              return (
+                <div key={`section:${it.label}`}>
+                  {hasPrevVisibleLink ? <div style={menuDivider} /> : null}
+                  <div style={menuSectionTitle}>{it.label}</div>
+                </div>
+              );
+            }
+
+            const href = it.href || "#";
+            const a = isActive(pathname, href);
+
             return (
               <Link
-                key={it.href}
-                href={it.href}
+                key={href}
+                href={href}
                 role="menuitem"
                 style={{ ...menuItem, ...(a ? menuItemActive : {}) }}
                 onClick={onNavigate}
@@ -588,31 +606,49 @@ function MoreMenu({
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           More
-          <span style={chev} aria-hidden>▾</span>
+          <span style={chev} aria-hidden>
+            ▾
+          </span>
         </span>
       </button>
 
       {open ? (
-        <div style={{ ...menuPanel, minWidth: 260 }} role="menu" aria-label="More menu">
+        <div style={{ ...menuPanel, minWidth: 280 }} role="menu" aria-label="More menu">
           {sections.map((sec, idx) => (
             <div key={sec.title} style={{ padding: "6px 6px 2px 6px" }}>
               <div style={menuSectionTitle}>{sec.title}</div>
+
               <div style={{ marginTop: 4 }}>
-                {sec.items.map((it) => {
-                  const a = isActive(pathname, it.href);
-                  return (
-                    <Link
-                      key={`${sec.title}:${it.href}`}
-                      href={it.href}
-                      role="menuitem"
-                      style={{ ...menuItem, ...(a ? menuItemActive : {}) }}
-                      onClick={onNavigate}
-                    >
-                      {it.label}
-                    </Link>
-                  );
-                })}
+                {sec.items
+                  .filter((it) => it.show !== false)
+                  .map((it, itemIdx, arr) => {
+                    if (it.kind === "section") {
+                      const hasPrevVisibleLink = arr.slice(0, itemIdx).some((x) => x.kind !== "section");
+                      return (
+                        <div key={`more-section:${sec.title}:${it.label}`}>
+                          {hasPrevVisibleLink ? <div style={menuDivider} /> : null}
+                          <div style={menuSectionTitle}>{it.label}</div>
+                        </div>
+                      );
+                    }
+
+                    const href = it.href || "#";
+                    const a = isActive(pathname, href);
+
+                    return (
+                      <Link
+                        key={`${sec.title}:${href}`}
+                        href={href}
+                        role="menuitem"
+                        style={{ ...menuItem, ...(a ? menuItemActive : {}) }}
+                        onClick={onNavigate}
+                      >
+                        {it.label}
+                      </Link>
+                    );
+                  })}
               </div>
+
               {idx < sections.length - 1 ? <div style={menuDivider} /> : null}
             </div>
           ))}
@@ -644,13 +680,12 @@ const navInner: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   gap: 16,
-  // No flexWrap — everything must stay on one row; More menu handles overflow
 };
 
 const left: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 4, // ↓ tighter gap between nav items (was 12)
+  gap: 4,
   flexShrink: 0,
 };
 
@@ -661,7 +696,6 @@ const right: React.CSSProperties = {
   flexShrink: 0,
 };
 
-// ↓ Simplified brand — no subtitle, slightly smaller logo
 const brandWrap: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -672,7 +706,6 @@ const brandWrap: React.CSSProperties = {
   borderRight: "1px solid #e5e7eb",
 };
 
-// ↓ Standalone brand title (subtitle removed)
 const brandTitle: React.CSSProperties = {
   fontWeight: 900,
   fontSize: 15,
@@ -681,7 +714,6 @@ const brandTitle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-// ↓ Nav links: weight dropped to 600 for inactive state (was 900)
 const link: React.CSSProperties = {
   textDecoration: "none",
   padding: "7px 10px",
@@ -695,17 +727,16 @@ const link: React.CSSProperties = {
 const activeLink: React.CSSProperties = {
   backgroundColor: "#111827",
   color: "#ffffff",
-  fontWeight: 800, // ↑ active state gets heavier weight
+  fontWeight: 800,
 };
 
-// ↓ Dropdown buttons: weight 600 inactive, 800 active (was 900 both)
 const dropBtn: React.CSSProperties = {
   padding: "7px 10px",
   borderRadius: 10,
   border: "1px solid transparent",
   background: "transparent",
   color: "#374151",
-  fontWeight: 600, // ↓ was 900
+  fontWeight: 600,
   fontSize: 14,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -740,7 +771,7 @@ const quickActionBtn: React.CSSProperties = {
   border: "1px solid #111827",
   background: "#111827",
   color: "#ffffff",
-  fontWeight: 700, // ↓ was 900
+  fontWeight: 700,
   fontSize: 13,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -762,7 +793,7 @@ const pillOpen: React.CSSProperties = {
 
 const userPillText: React.CSSProperties = {
   fontSize: 13,
-  fontWeight: 600, // ↓ was 900
+  fontWeight: 600,
   color: "#111827",
   minWidth: 80,
   textAlign: "center",
@@ -772,13 +803,15 @@ const menuPanel: React.CSSProperties = {
   position: "absolute",
   top: "calc(100% + 8px)",
   right: 0,
-  minWidth: 220,
+  minWidth: 260,
   background: "#ffffff",
   border: "1px solid #e5e7eb",
   borderRadius: 12,
   boxShadow: "0 12px 28px rgba(0,0,0,0.12)",
   padding: 8,
   zIndex: 100,
+  maxHeight: "70vh",
+  overflowY: "auto",
 };
 
 const menuHeader: React.CSSProperties = {
@@ -810,7 +843,7 @@ const menuSectionTitle: React.CSSProperties = {
   color: "#9ca3af",
   textTransform: "uppercase",
   letterSpacing: 0.6,
-  padding: "0 6px",
+  padding: "4px 6px 2px 6px",
 };
 
 const menuItem: React.CSSProperties = {
@@ -819,7 +852,7 @@ const menuItem: React.CSSProperties = {
   padding: "9px 10px",
   borderRadius: 10,
   color: "#111827",
-  fontWeight: 600, // ↓ was 800
+  fontWeight: 600,
   fontSize: 13,
 };
 
@@ -835,7 +868,6 @@ const menuItemDanger: React.CSSProperties = {
   border: "1px solid #fecaca",
 };
 
-// ↓ Search no longer has minWidth; width is controlled dynamically via inline style
 const searchWrap: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -866,7 +898,7 @@ const searchBtn: React.CSSProperties = {
   border: "1px solid #111827",
   background: "#111827",
   color: "#fff",
-  fontWeight: 700, // ↓ was 900
+  fontWeight: 700,
   fontSize: 12,
   cursor: "pointer",
   flexShrink: 0,

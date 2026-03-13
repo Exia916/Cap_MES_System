@@ -368,7 +368,7 @@ function onPrintPdf() {
   addField(gridEl, "Asset", wo.asset?.trim() || "—");
   addField(gridEl, "Priority", wo.priority?.trim() || "—");
   addField(gridEl, "Common Issue", wo.commonIssue?.trim() || "—");
-  addField(gridEl, "Operator Initials", wo.operatorInitials?.trim() || "—");
+  addField(gridEl, "Operator Name", wo.operatorInitials?.trim() || "—");
   addField(gridEl, "Issue / Notes", wo.issueDialogue?.trim() || "—", true, true);
 
   // 🔹 Tech Updates
@@ -452,7 +452,7 @@ function onPrintPdf() {
             </div>
 
             <div>
-              <div style={metaLabel}>Operator Initials</div>
+              <div style={metaLabel}>Operator Name</div>
               <div style={metaValue}>{wo.operatorInitials?.trim() || "—"}</div>
             </div>
 

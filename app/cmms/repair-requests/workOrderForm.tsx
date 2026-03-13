@@ -271,8 +271,8 @@ export default function WorkOrderForm({
           ))}
         </select>
 
-        <label style={label}>Operator Initials</label>
-        <input value={operatorInitials} onChange={(e) => setOperatorInitials(e.target.value)} placeholder="e.g. DT" style={input} disabled={saving} />
+        <label style={label}>Operator Name</label>
+        <input value={operatorInitials} onChange={(e) => setOperatorInitials(e.target.value)} placeholder="e.g. John Doe" style={input} disabled={saving} />
 
         <label style={label}>Common Issue *</label>
         <select value={commonIssueId} onChange={(e) => setCommonIssueId(e.target.value)} style={input} disabled={loading || saving}>

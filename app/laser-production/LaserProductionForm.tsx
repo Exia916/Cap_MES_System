@@ -241,99 +241,126 @@ export default function LaserProductionForm({
     }
   }
 
-  if (loading) return <div className="p-6">Loading…</div>;
+  if (loading) {
+    return (
+      <>
+        <div className="mb-4">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => router.push("/laser-production")}
+          >
+            ← Back to List
+          </button>
+        </div>
+        <div className="p-6">Loading…</div>
+      </>
+    );
+  }
 
   return (
-    <form onSubmit={onSubmit} className="max-w-3xl mx-auto space-y-4">
-      {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-      )}
-
-      {successMsg && (
-        <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
-          {successMsg}
-        </div>
-      )}
-
-      {/* Entry Date hidden to match other modules */}
-
-      <div>
-        <label className="block text-sm font-medium mb-1">
-          Sales Order <span className="text-red-600">*</span>
-        </label>
-        <input
-          ref={salesOrderRef}
-          className={inputClass(!!fieldErrors.salesOrder)}
-          value={salesOrder}
-          onChange={(e) => {
-            setSalesOrder(stripCommas(e.target.value));
-            setFieldErrors((prev) => ({ ...prev, salesOrder: undefined }));
-          }}
-          placeholder="7-digit SO"
-          inputMode="numeric"
-          readOnly={mode === "edit"} // match other modules
-        />
-        {fieldErrors.salesOrder ? <div className={errTextClass}>{fieldErrors.salesOrder}</div> : null}
-        <div className="mt-1 text-xs opacity-70">Is required, and has to be a 7 digit number.</div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium mb-1">
-          Leather Style/Color <span className="text-red-600">*</span>
-        </label>
-        <select
-          ref={styleRef}
-          className={inputClass(!!fieldErrors.leatherStyleColor)}
-          value={leatherStyleColor}
-          onChange={(e) => {
-            setLeatherStyleColor(e.target.value);
-            setFieldErrors((prev) => ({ ...prev, leatherStyleColor: undefined }));
-          }}
+    <>
+      <div className="mb-4">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => router.push("/laser-production")}
         >
-          <option value="">{stylesLoading ? "Loading..." : "Select Style/Color"}</option>
-          {styles.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        {fieldErrors.leatherStyleColor ? <div className={errTextClass}>{fieldErrors.leatherStyleColor}</div> : null}
+          ← Back to List
+        </button>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-1">
-          Pieces Cut <span className="text-red-600">*</span>
-        </label>
-        <input
-          ref={piecesRef}
-          type="text"
-          className={inputClass(!!fieldErrors.piecesCut)}
-          value={piecesCut}
-          onChange={(e) => {
-            setPiecesCut(stripCommas(e.target.value));
-            setFieldErrors((prev) => ({ ...prev, piecesCut: undefined }));
-          }}
-          inputMode="numeric"
-          placeholder=""
-        />
-        {fieldErrors.piecesCut ? <div className={errTextClass}>{fieldErrors.piecesCut}</div> : null}
-        <div className="mt-1 text-xs opacity-70">Is required, and should be a number only.</div>
-      </div>
+      <form onSubmit={onSubmit} className="max-w-3xl mx-auto space-y-4">
+        {error && (
+          <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        )}
 
-      <div>
-        <label className="block text-sm font-medium mb-1">Notes</label>
-        <textarea
-          className="w-full rounded border p-2"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={4}
-          placeholder="Optional"
-        />
-      </div>
+        {successMsg && (
+          <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+            {successMsg}
+          </div>
+        )}
 
-      <button type="submit" disabled={saving} className="rounded bg-black px-4 py-2 text-white disabled:opacity-60">
-        {saving ? "Saving..." : mode === "edit" ? "Update" : "Save"}
-      </button>
-    </form>
+        {/* Entry Date hidden to match other modules */}
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Sales Order <span className="text-red-600">*</span>
+          </label>
+          <input
+            ref={salesOrderRef}
+            className={inputClass(!!fieldErrors.salesOrder)}
+            value={salesOrder}
+            onChange={(e) => {
+              setSalesOrder(stripCommas(e.target.value));
+              setFieldErrors((prev) => ({ ...prev, salesOrder: undefined }));
+            }}
+            placeholder="7-digit SO"
+            inputMode="numeric"
+            readOnly={mode === "edit"} // match other modules
+          />
+          {fieldErrors.salesOrder ? <div className={errTextClass}>{fieldErrors.salesOrder}</div> : null}
+          <div className="mt-1 text-xs opacity-70">Is required, and has to be a 7 digit number.</div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Leather Style/Color <span className="text-red-600">*</span>
+          </label>
+          <select
+            ref={styleRef}
+            className={inputClass(!!fieldErrors.leatherStyleColor)}
+            value={leatherStyleColor}
+            onChange={(e) => {
+              setLeatherStyleColor(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, leatherStyleColor: undefined }));
+            }}
+          >
+            <option value="">{stylesLoading ? "Loading..." : "Select Style/Color"}</option>
+            {styles.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          {fieldErrors.leatherStyleColor ? <div className={errTextClass}>{fieldErrors.leatherStyleColor}</div> : null}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Pieces Cut <span className="text-red-600">*</span>
+          </label>
+          <input
+            ref={piecesRef}
+            type="text"
+            className={inputClass(!!fieldErrors.piecesCut)}
+            value={piecesCut}
+            onChange={(e) => {
+              setPiecesCut(stripCommas(e.target.value));
+              setFieldErrors((prev) => ({ ...prev, piecesCut: undefined }));
+            }}
+            inputMode="numeric"
+            placeholder=""
+          />
+          {fieldErrors.piecesCut ? <div className={errTextClass}>{fieldErrors.piecesCut}</div> : null}
+          <div className="mt-1 text-xs opacity-70">Is required, and should be a number only.</div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Notes</label>
+          <textarea
+            className="w-full rounded border p-2"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={4}
+            placeholder="Optional"
+          />
+        </div>
+
+        <button type="submit" disabled={saving} className="btn btn-primary">
+          {saving ? "Saving..." : mode === "edit" ? "Update" : "Save"}
+        </button>
+      </form>
+    </>
   );
 }

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { listEmbroiderySubmissionsForUserAndSO } from "@/lib/repositories/embroideryRepo";
+import { normalizeSalesOrder } from "@/lib/utils/salesOrder";
 
 export async function GET(req: NextRequest) {
   const auth = await getAuthFromRequest(req as any);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const salesOrderRaw = req.nextUrl.searchParams.get("salesOrder")?.trim() ?? "";
-  const salesOrder = Number(salesOrderRaw);
-  if (!Number.isFinite(salesOrder) || !Number.isInteger(salesOrder)) {
-    return NextResponse.json({ error: "Invalid salesOrder" }, { status: 400 });
+  const rawSalesOrder = req.nextUrl.searchParams.get("salesOrder") ?? "";
+  const normalizedSO = normalizeSalesOrder(rawSalesOrder);
+
+  if (!normalizedSO.isValid || !normalizedSO.salesOrderBase) {
+    return NextResponse.json({ submissions: [] }, { status: 200 });
   }
 
   try {
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest) {
 
     const submissions = await listEmbroiderySubmissionsForUserAndSO({
       employeeNumber,
-      salesOrder,
+      salesOrderBase: normalizedSO.salesOrderBase,
     });
 
     return NextResponse.json({ submissions }, { status: 200 });
@@ -26,4 +28,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err?.message ?? "Server error" }, { status: 500 });
   }
 }
-

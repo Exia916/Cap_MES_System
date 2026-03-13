@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
-import { approveRecutRequest, getRecutRequestById } from "@/lib/repositories/recutRepo";
+import { getRecutRequestById, updateRecutRequest } from "@/lib/repositories/recutRepo";
+import { logAuditEvent, logError, logWarn } from "@/lib/logging/logger";
 
 export const runtime = "nodejs";
 
@@ -16,36 +17,147 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+  let id = "";
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
+
     if (!auth) {
       return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (!roleOk((auth as any).role)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_APPROVE_FORBIDDEN",
+        message: "User attempted to approve recut request without permission",
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { id } = await ctx.params;
+    const params = await ctx.params;
+    id = String(params?.id || "").trim();
+
+    if (!id) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_APPROVE_INVALID_ID",
+        message: "Recut approve request received invalid id",
+        recordType: "recut_requests",
+        recordId: null,
+      });
+
+      return NextResponse.json<Resp>({ error: "Invalid id" }, { status: 400 });
+    }
+
     const current = await getRecutRequestById(id);
 
     if (!current) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_NOT_FOUND",
+        message: "Recut request not found during approval",
+        recordType: "recut_requests",
+        recordId: id,
+      });
+
       return NextResponse.json<Resp>({ error: "Not found" }, { status: 404 });
     }
 
-    if (!current.supervisorApproved) {
-      const approvedBy = String(
-        (auth as any).displayName ?? (auth as any).username ?? "Unknown"
-      ).trim();
-
-      await approveRecutRequest({
-        id,
-        approvedBy,
+    if (current.supervisorApproved) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_APPROVE_ALREADY_SET",
+        message: "Recut request was already supervisor approved",
+        recordType: "recut_requests",
+        recordId: id,
       });
+
+      return NextResponse.json<Resp>({ ok: true }, { status: 200 });
     }
 
+    const authName = String(
+      (auth as any).displayName ?? (auth as any).username ?? "Unknown"
+    ).trim();
+
+    await updateRecutRequest({
+      id,
+      requestedDepartment: current.requestedDepartment,
+      salesOrder: current.salesOrder,
+      salesOrderBase: current.salesOrderBase,
+      salesOrderDisplay: current.salesOrderDisplay ?? current.salesOrder,
+      designName: current.designName,
+      recutReason: current.recutReason,
+      detailNumber: current.detailNumber,
+      capStyle: current.capStyle,
+      pieces: current.pieces,
+      operator: current.operator,
+      deliverTo: current.deliverTo,
+      notes: current.notes ?? null,
+      event: !!current.event,
+
+      supervisorApproved: true,
+      supervisorApprovedAt: new Date(),
+      supervisorApprovedBy: authName,
+
+      warehousePrinted: !!current.warehousePrinted,
+      warehousePrintedAt: current.warehousePrintedAt ? new Date(current.warehousePrintedAt) : null,
+      warehousePrintedBy: current.warehousePrintedBy,
+
+      doNotPull: !!current.doNotPull,
+      doNotPullAt: current.doNotPullAt ? new Date(current.doNotPullAt) : null,
+      doNotPullBy: current.doNotPullBy,
+    });
+
+    await logAuditEvent({
+      req,
+      auth,
+      module: "RECUT",
+      eventType: "RECUT_SUPERVISOR_APPROVED",
+      message: "Recut request supervisor approved",
+      recordType: "recut_requests",
+      recordId: id,
+      details: {
+        approvedBy: authName,
+        salesOrder: current.salesOrder,
+        salesOrderBase: current.salesOrderBase,
+        designName: current.designName,
+        requestedDepartment: current.requestedDepartment,
+      },
+    });
+
     return NextResponse.json<Resp>({ ok: true }, { status: 200 });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_APPROVE_ERROR",
+      message: "Failed to approve recut request",
+      recordType: "recut_requests",
+      recordId: id || null,
+      error: err,
+      details: {
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recut approve POST error:", err);
     return NextResponse.json<Resp>({ error: "Server error" }, { status: 500 });
   }

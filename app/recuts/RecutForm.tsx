@@ -77,7 +77,7 @@ function isEmbDept(value: string | null | undefined) {
 }
 
 function isValidSalesOrder(v: string) {
-  return /^\d{7}\.\d{3}$/.test(String(v || "").trim());
+  return /^\d{7}.*$/.test(String(v || "").trim());
 }
 
 function isWholeNumberString(v: string) {
@@ -191,6 +191,8 @@ function CapStyleCombobox({
 
 export default function RecutForm({ mode, initialId }: Props) {
   const router = useRouter();
+
+  const backHref = mode === "edit" ? "/recuts/supervisor-review" : "/recuts";
 
   const [me, setMe] = useState<MeResponse | null>(null);
 
@@ -324,8 +326,6 @@ export default function RecutForm({ mode, initialId }: Props) {
   const role = useMemo(() => String(me?.role ?? "").trim().toUpperCase(), [me?.role]);
   const canSeeApprovalFlags =
     role === "ADMIN" || role === "MANAGER" || role === "SUPERVISOR";
-  const canEditDoNotPull =
-    role === "ADMIN" || role === "MANAGER" || role === "SUPERVISOR";
 
   const hideOperatorField = isEmbDept(me?.department);
   const showOperatorField = !hideOperatorField;
@@ -400,7 +400,7 @@ export default function RecutForm({ mode, initialId }: Props) {
 
     if (!salesOrder.trim()) next.salesOrder = "Sales Order # is required.";
     else if (!isValidSalesOrder(salesOrder)) {
-      next.salesOrder = "Sales Order must be in format 3023113.001";
+      next.salesOrder = "Sales Order must begin with 7 digits.";
     }
 
     if (!designName.trim()) next.designName = "Design Name is required.";
@@ -478,7 +478,7 @@ export default function RecutForm({ mode, initialId }: Props) {
       setSuccessMsg(mode === "add" ? "Recut request created." : "Recut request updated.");
 
       setTimeout(() => {
-        router.push(mode === "edit" ? "/recuts/supervisor-review" : "/recuts");
+        router.push(backHref);
         router.refresh();
       }, 500);
     } catch {
@@ -489,11 +489,26 @@ export default function RecutForm({ mode, initialId }: Props) {
   }
 
   if (loading) {
-    return <div style={{ padding: 16 }}>Loading recut request…</div>;
+    return (
+      <>
+        <div style={{ marginBottom: 12 }}>
+          <button type="button" className="btn btn-secondary" onClick={() => router.push(backHref)}>
+            ← Back to List
+          </button>
+        </div>
+        <div style={{ padding: 16 }}>Loading recut request…</div>
+      </>
+    );
   }
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
+      <div style={{ marginBottom: 12 }}>
+        <button type="button" className="btn btn-secondary" onClick={() => router.push(backHref)}>
+          ← Back to List
+        </button>
+      </div>
+
       <div style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>{mode === "add" ? "New Recut Request" : "Edit Recut Request"}</h1>
         <p style={{ marginTop: 8, color: "#4b5563" }}>
@@ -533,15 +548,20 @@ export default function RecutForm({ mode, initialId }: Props) {
           </FieldBlock>
 
           <FieldBlock label="Sales Order #" error={errors.salesOrder}>
-            <input
-              value={salesOrder}
-              onChange={(e) => handleSalesOrderChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.preventDefault();
-              }}
-              placeholder="3023113.001"
-              style={inputStyle(!!errors.salesOrder)}
-            />
+            <>
+              <input
+                value={salesOrder}
+                onChange={(e) => handleSalesOrderChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.preventDefault();
+                }}
+                placeholder="3023113.001"
+                style={inputStyle(!!errors.salesOrder)}
+              />
+              <div style={helperText}>
+                Scan the Sales Order barcode on the sales order page the item you are requesting is on. The suffix (e.g. .001) is required for warehouse picking. This number will correspond to the detail number you are requesting a recut for. If you are unsure, please ask your supervisor.
+              </div>
+            </>
           </FieldBlock>
 
           <FieldBlock label="Design Name" error={errors.designName}>
@@ -629,41 +649,24 @@ export default function RecutForm({ mode, initialId }: Props) {
             onChange={setEvent}
           />
 
-          {canEditDoNotPull ? (
-            <CheckboxBlock
-              label="Do Not Pull"
-              checked={doNotPull}
-              onChange={setDoNotPull}
-            />
-          ) : (
-            <ReadOnlyField label="Do Not Pull" value={doNotPull ? "Yes" : "No"} />
-          )}
-
           {canSeeApprovalFlags ? (
-            <>
-              <CheckboxBlock
-                label="Supervisor Approved"
-                checked={supervisorApproved}
-                onChange={setSupervisorApproved}
-              />
-              <CheckboxBlock
-                label="Warehouse Printed"
-                checked={warehousePrinted}
-                onChange={setWarehousePrinted}
-              />
-            </>
+            <CheckboxBlock
+              label="Supervisor Approved"
+              checked={supervisorApproved}
+              onChange={setSupervisorApproved}
+            />
           ) : null}
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <button type="submit" disabled={saving} style={btnPrimary}>
+          <button type="submit" disabled={saving} className="btn btn-primary">
             {saving ? "Saving..." : mode === "add" ? "Create Recut Request" : "Save Changes"}
           </button>
 
           <button
             type="button"
-            onClick={() => router.push(mode === "edit" ? "/recuts/supervisor-review" : "/recuts")}
-            style={btnSecondary}
+            onClick={() => router.push(backHref)}
+            className="btn btn-secondary"
           >
             Cancel
           </button>
@@ -763,6 +766,12 @@ const fieldError: React.CSSProperties = {
   fontWeight: 600,
 };
 
+const helperText: React.CSSProperties = {
+  marginTop: 6,
+  color: "#4b5563",
+  fontSize: 12,
+};
+
 const errorBox: React.CSSProperties = {
   marginBottom: 16,
   padding: 12,
@@ -820,24 +829,4 @@ const comboItem: React.CSSProperties = {
   border: "none",
   background: "#fff",
   cursor: "pointer",
-};
-
-const btnPrimary: React.CSSProperties = {
-  border: "none",
-  background: "#111827",
-  color: "#fff",
-  borderRadius: 8,
-  padding: "10px 14px",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const btnSecondary: React.CSSProperties = {
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  color: "#111827",
-  borderRadius: 8,
-  padding: "10px 14px",
-  cursor: "pointer",
-  fontWeight: 600,
 };

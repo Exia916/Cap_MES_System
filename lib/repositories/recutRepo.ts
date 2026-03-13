@@ -25,7 +25,10 @@ export type RecutRequestRow = {
 
   requestedDepartment: string;
 
-  salesOrder: string;
+  salesOrder: string; // UI/display compatibility
+  salesOrderBase: string | null;
+  salesOrderDisplay: string | null;
+
   designName: string;
   recutReason: string;
   detailNumber: number;
@@ -61,6 +64,9 @@ export type CreateRecutRequestInput = {
   requestedDepartment: string;
 
   salesOrder: string;
+  salesOrderBase?: string | null;
+  salesOrderDisplay?: string | null;
+
   designName: string;
   recutReason: string;
   detailNumber: number;
@@ -90,6 +96,9 @@ export type UpdateRecutRequestInput = {
   requestedDepartment: string;
 
   salesOrder: string;
+  salesOrderBase?: string | null;
+  salesOrderDisplay?: string | null;
+
   designName: string;
   recutReason: string;
   detailNumber: number;
@@ -185,7 +194,10 @@ function baseSelectSql() {
 
       requested_department AS "requestedDepartment",
 
-      sales_order AS "salesOrder",
+      COALESCE(sales_order_display, sales_order) AS "salesOrder",
+      sales_order_base AS "salesOrderBase",
+      sales_order_display AS "salesOrderDisplay",
+
       design_name AS "designName",
       recut_reason AS "recutReason",
       detail_number AS "detailNumber",
@@ -257,7 +269,8 @@ function buildWhere(filters: {
         OR CAST(requested_time AS text) ILIKE ${p}
         OR requested_by_name ILIKE ${p}
         OR requested_department ILIKE ${p}
-        OR sales_order ILIKE ${p}
+        OR COALESCE(sales_order_base, '') ILIKE ${p}
+        OR COALESCE(sales_order_display, sales_order, '') ILIKE ${p}
         OR design_name ILIKE ${p}
         OR recut_reason ILIKE ${p}
         OR CAST(detail_number AS text) ILIKE ${p}
@@ -275,7 +288,18 @@ function buildWhere(filters: {
   addIlikeFilter(where, params, `CAST(requested_time AS text)`, filters.requestedTime);
   addIlikeFilter(where, params, `requested_by_name`, filters.requestedByName);
   addIlikeFilter(where, params, `requested_department`, filters.requestedDepartment);
-  addIlikeFilter(where, params, `sales_order`, filters.salesOrder);
+
+  if (String(filters.salesOrder ?? "").trim()) {
+    const v = String(filters.salesOrder ?? "").trim();
+    params.push(`%${v}%`);
+    where.push(`
+      (
+        COALESCE(sales_order_base, '') ILIKE $${params.length}
+        OR COALESCE(sales_order_display, sales_order, '') ILIKE $${params.length}
+      )
+    `);
+  }
+
   addIlikeFilter(where, params, `design_name`, filters.designName);
   addIlikeFilter(where, params, `recut_reason`, filters.recutReason);
   addIlikeFilter(where, params, `CAST(detail_number AS text)`, filters.detailNumber);
@@ -320,7 +344,7 @@ function getOrderBy(sortBy?: string, sortDir?: SortDir) {
     requestedTime: `requested_time ${dir}`,
     requestedByName: `requested_by_name ${dir}`,
     requestedDepartment: `requested_department ${dir}`,
-    salesOrder: `sales_order ${dir}`,
+    salesOrder: `COALESCE(sales_order_display, sales_order) ${dir}`,
     designName: `design_name ${dir}`,
     recutReason: `recut_reason ${dir}`,
     detailNumber: `detail_number ${dir}`,
@@ -400,6 +424,9 @@ export async function listRecutItems(): Promise<LookupRow[]> {
 export async function createRecutRequest(
   input: CreateRecutRequestInput
 ): Promise<{ id: string; recutId: number }> {
+  const salesOrderDisplay = String(input.salesOrderDisplay ?? input.salesOrder ?? "").trim();
+  const salesOrderBase = String(input.salesOrderBase ?? "").trim() || null;
+
   const { rows } = await db.query<{ id: string; recutId: number }>(
     `
     INSERT INTO public.recut_requests (
@@ -411,6 +438,9 @@ export async function createRecutRequest(
       requested_department,
 
       sales_order,
+      sales_order_base,
+      sales_order_display,
+
       design_name,
       recut_reason,
       detail_number,
@@ -436,10 +466,11 @@ export async function createRecutRequest(
     VALUES (
       $1, $2, $3, $4,
       $5,
-      $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-      $16, $17, $18,
-      $19, $20, $21,
-      $22, $23, $24
+      $6, $7, $8,
+      $9, $10, $11, $12, $13, $14, $15, $16, $17,
+      $18, $19, $20,
+      $21, $22, $23,
+      $24, $25, $26
     )
     RETURNING
       id,
@@ -453,7 +484,10 @@ export async function createRecutRequest(
 
       input.requestedDepartment,
 
-      input.salesOrder,
+      salesOrderDisplay,
+      salesOrderBase,
+      salesOrderDisplay,
+
       input.designName,
       input.recutReason,
       input.detailNumber,
@@ -510,39 +544,46 @@ export async function getRecutRequestsByIds(ids: string[]): Promise<RecutRequest
 }
 
 export async function updateRecutRequest(input: UpdateRecutRequestInput): Promise<void> {
+  const salesOrderDisplay = String(input.salesOrderDisplay ?? input.salesOrder ?? "").trim();
+  const salesOrderBase = String(input.salesOrderBase ?? "").trim() || null;
+
   await db.query(
     `
     UPDATE public.recut_requests
     SET
       requested_department = $2,
       sales_order = $3,
-      design_name = $4,
-      recut_reason = $5,
-      detail_number = $6,
-      cap_style = $7,
-      pieces = $8,
-      operator = $9,
-      deliver_to = $10,
-      notes = $11,
-      event = $12,
+      sales_order_base = $4,
+      sales_order_display = $5,
+      design_name = $6,
+      recut_reason = $7,
+      detail_number = $8,
+      cap_style = $9,
+      pieces = $10,
+      operator = $11,
+      deliver_to = $12,
+      notes = $13,
+      event = $14,
 
-      supervisor_approved = $13,
-      supervisor_approved_at = $14,
-      supervisor_approved_by = $15,
+      supervisor_approved = $15,
+      supervisor_approved_at = $16,
+      supervisor_approved_by = $17,
 
-      warehouse_printed = $16,
-      warehouse_printed_at = $17,
-      warehouse_printed_by = $18,
+      warehouse_printed = $18,
+      warehouse_printed_at = $19,
+      warehouse_printed_by = $20,
 
-      do_not_pull = $19,
-      do_not_pull_at = $20,
-      do_not_pull_by = $21
+      do_not_pull = $21,
+      do_not_pull_at = $22,
+      do_not_pull_by = $23
     WHERE id = $1
     `,
     [
       input.id,
       input.requestedDepartment,
-      input.salesOrder,
+      salesOrderDisplay,
+      salesOrderBase,
+      salesOrderDisplay,
       input.designName,
       input.recutReason,
       input.detailNumber,

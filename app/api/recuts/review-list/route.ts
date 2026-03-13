@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth";
 import { listRecutRequestsForReviewPaged, type SortDir } from "@/lib/repositories/recutRepo";
+import { logError, logWarn } from "@/lib/logging/logger";
 
 export const runtime = "nodejs";
 
@@ -28,13 +29,25 @@ function parseBoolParam(v: string | null): boolean | null {
 }
 
 export async function GET(req: NextRequest) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
+
     if (!auth) {
       return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (!roleOk((auth as any).role)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_REVIEW_LIST_FORBIDDEN",
+        message: "User attempted to load recut review list without permission",
+      });
+
       return NextResponse.json<Resp>({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -92,7 +105,21 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json<Resp>(result, { status: 200 });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_REVIEW_LIST_ERROR",
+      message: "Failed to load recut review list",
+      error: err,
+      details: {
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recuts review list GET error:", err);
     return NextResponse.json<Resp>({ error: "Server error" }, { status: 500 });
   }

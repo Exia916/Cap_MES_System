@@ -9,6 +9,7 @@ import {
   markRecutRequestsPrinted,
   type RecutRequestRow,
 } from "@/lib/repositories/recutRepo";
+import { logAuditEvent, logError, logWarn } from "@/lib/logging/logger";
 
 export const runtime = "nodejs";
 
@@ -275,8 +276,6 @@ function drawTicket(
     valueFont: regular,
   });
 
-
-
   topY -= 62;
 
   page.drawLine({
@@ -364,26 +363,64 @@ async function buildPdf(rows: RecutRequestRow[]) {
 }
 
 export async function POST(req: NextRequest) {
+  let auth: ReturnType<typeof getAuthFromRequest> | null = null;
+  let ids: string[] = [];
+  let rows: RecutRequestRow[] = [];
+
   try {
-    const auth = await getAuthFromRequest(req as any);
+    auth = await getAuthFromRequest(req as any);
     if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (!roleOk((auth as any).role)) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_WAREHOUSE_PRINT_FORBIDDEN",
+        message: "User attempted to print warehouse recut tickets without permission",
+      });
+
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json().catch(() => null);
-    const ids = Array.isArray(body?.ids) ? body.ids.map((x: unknown) => String(x)).filter(Boolean) : [];
+    ids = Array.isArray(body?.ids) ? body.ids.map((x: unknown) => String(x)).filter(Boolean) : [];
 
     if (!ids.length) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_WAREHOUSE_PRINT_INVALID",
+        message: "Warehouse print request received no selected recut ids",
+        details: {
+          reason: "NO_IDS_SELECTED",
+        },
+      });
+
       return NextResponse.json({ error: "No recut requests selected." }, { status: 400 });
     }
 
-    const rows = await getRecutRequestsByIds(ids);
+    rows = await getRecutRequestsByIds(ids);
 
     if (!rows.length) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_WAREHOUSE_PRINT_NOT_FOUND",
+        message: "Warehouse print request found no matching recut requests",
+        recordType: "recut_requests",
+        details: {
+          requestedIds: ids,
+        },
+      });
+
       return NextResponse.json({ error: "No matching recut requests found." }, { status: 404 });
     }
 
@@ -398,6 +435,22 @@ export async function POST(req: NextRequest) {
       printedBy,
     });
 
+    await logAuditEvent({
+      req,
+      auth,
+      module: "RECUT",
+      eventType: "RECUT_WAREHOUSE_PRINTED",
+      message: "Warehouse recut tickets printed and marked as printed",
+      recordType: "recut_requests",
+      details: {
+        requestedCount: ids.length,
+        printedCount: rows.length,
+        ids: rows.map((r) => r.id),
+        recutIds: rows.map((r) => r.recutId),
+        printedBy,
+      },
+    });
+
     return new NextResponse(pdfBytes as BodyInit, {
       status: 200,
       headers: {
@@ -406,7 +459,24 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-  } catch (err) {
+  } catch (err: any) {
+    await logError({
+      req,
+      auth,
+      category: "API",
+      module: "RECUT",
+      eventType: "RECUT_WAREHOUSE_PRINT_ERROR",
+      message: "Failed to print warehouse recut tickets",
+      recordType: "recut_requests",
+      error: err,
+      details: {
+        requestedIds: ids,
+        matchedIds: rows.map((r) => r.id),
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+      },
+    });
+
     console.error("recuts warehouse print POST error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
