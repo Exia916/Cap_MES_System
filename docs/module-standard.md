@@ -1,6 +1,6 @@
 # Module Development Standard
 
-All modules in the Cap Operations Platform should follow a consistent structure.
+All modules in the Cap Applications Platform should follow a consistent structure.
 
 ## Standard Module Components
 

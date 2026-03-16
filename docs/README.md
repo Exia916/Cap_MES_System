@@ -1,6 +1,6 @@
-# Cap Operations Platform
+# Cap Applications Platform
 
-The Cap Operations Platform is an internal manufacturing and operations system designed to support production tracking, maintenance management, operational workflows, and reporting across the organization.
+The Cap Applications Platform is an internal manufacturing and operations system designed to support production tracking, maintenance management, operational workflows, and reporting across the organization.
 
 The system is being developed as a modular platform where shared services support multiple operational modules.
 

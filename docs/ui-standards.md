@@ -1,6 +1,6 @@
 # UI Standards
 
-The Cap Operations Platform uses a consistent UI design.
+The Cap Applications Platform uses a consistent UI design.
 
 ## Navigation
 

@@ -1,6 +1,6 @@
 # Platform Architecture Overview
 
-The Cap Operations Platform is built using a layered architecture designed for modular growth and long-term scalability.
+The Cap Applications Platform is built using a layered architecture designed for modular growth and long-term scalability.
 
 ## Architecture Layers
 
