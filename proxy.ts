@@ -60,7 +60,7 @@ function isCmmsMasterPath(pathname: string) {
   return CMMS_MASTER_KEYS.has(key);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {
