@@ -87,6 +87,25 @@ export async function POST(req: NextRequest) {
 
     const normalizedSO = normalizeSalesOrder(rawSalesOrder);
 
+    if (!normalizedSO.salesOrderDisplay) {
+      await logWarn({
+        req,
+        auth,
+        category: "API",
+        module: "RECUT",
+        eventType: "RECUT_CREATE_INVALID",
+        message: "Recut create request missing valid sales order",
+        details: {
+          salesOrder: rawSalesOrder || null,
+        },
+      });
+
+      return NextResponse.json<Resp>(
+        { error: "A valid sales order is required." },
+        { status: 400 }
+      );
+    }
+
     const authRole = String((auth as any).role ?? "").trim().toUpperCase();
     const authDept = normalizeDept((auth as any).department ?? null);
     const authName = String((auth as any).displayName ?? (auth as any).username ?? "").trim();
@@ -98,8 +117,10 @@ export async function POST(req: NextRequest) {
     const canSetFlags =
       authRole === "ADMIN" || authRole === "MANAGER" || authRole === "SUPERVISOR";
 
-    const requestedByUserId = (auth as any).userId != null ? String((auth as any).userId) : null;
-    const requestedByUsername = (auth as any).username != null ? String((auth as any).username) : null;
+    const requestedByUserId =
+      (auth as any).userId != null ? String((auth as any).userId) : null;
+    const requestedByUsername =
+      (auth as any).username != null ? String((auth as any).username) : null;
     const requestedByEmployeeNumber =
       (auth as any).employeeNumber != null
         ? Number((auth as any).employeeNumber)
@@ -141,8 +162,6 @@ export async function POST(req: NextRequest) {
       doNotPullBy: null,
     });
 
-    /* ---------------- Audit Log ---------------- */
-
     await logAuditEvent({
       req,
       auth,
@@ -162,36 +181,29 @@ export async function POST(req: NextRequest) {
     });
 
     await createActivityHistory({
-  entityType: "recut_requests",
-  entityId: result.id,
-  eventType: "CREATED",
-  message: "Recut request created",
-  module: "RECUT",
-  userId: requestedByUserId,
-  userName: authName,
-  employeeNumber: requestedByEmployeeNumber,
-  salesOrder: Number(normalizedSO.salesOrderBase),
-  detailNumber,
-});
-
-    /* ---------------- Activity History ---------------- */
+      entityType: "recut_requests",
+      entityId: result.id,
+      eventType: "CREATED",
+      message: "Recut request created",
+      module: "RECUT",
+      userId: requestedByUserId,
+      userName: authName,
+      employeeNumber: requestedByEmployeeNumber,
+      salesOrder: normalizedSO.salesOrderBase ? Number(normalizedSO.salesOrderBase) : null,
+      detailNumber,
+    });
 
     await createActivityHistory({
       entityType: "recut_requests",
       entityId: result.id,
       eventType: "CREATED",
       message: "Recut request created",
+      module: "RECUT",
       userId: requestedByUserId,
-      username: requestedByUsername,
-      displayName: authName,
-      metadata: {
-        recutId: result.recutId,
-        requestedDepartment,
-        salesOrder: normalizedSO.salesOrderDisplay,
-        designName,
-        recutReason,
-        pieces,
-      },
+      userName: authName,
+      employeeNumber: requestedByEmployeeNumber,
+      salesOrder: normalizedSO.salesOrderBase ? Number(normalizedSO.salesOrderBase) : null,
+      detailNumber,
     });
 
     return NextResponse.json<Resp>(result, { status: 201 });

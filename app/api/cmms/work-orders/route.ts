@@ -80,11 +80,16 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
 
     const pageIndex = Math.max(0, Number(url.searchParams.get("pageIndex") || "0") || 0);
-    const pageSize = Math.min(Math.max(Number(url.searchParams.get("pageSize") || "25") || 25, 1), 250);
+    const pageSize = Math.min(
+      Math.max(Number(url.searchParams.get("pageSize") || "25") || 25, 1),
+      250
+    );
 
     const sortBy = (url.searchParams.get("sortBy") || "requestedAt").trim();
     const sortDir =
-      (url.searchParams.get("sortDir") || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
+      (url.searchParams.get("sortDir") || "desc").trim().toLowerCase() === "asc"
+        ? "asc"
+        : "desc";
 
     const requestedFrom = (url.searchParams.get("requestedFrom") || "").trim() || undefined;
     const requestedTo = (url.searchParams.get("requestedTo") || "").trim() || undefined;
@@ -194,6 +199,18 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json(
         { error: `Missing/invalid fields: ${missing.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    if (
+      departmentId === null ||
+      assetId === null ||
+      priorityId === null ||
+      commonIssueId === null
+    ) {
+      return NextResponse.json(
+        { error: "Missing/invalid numeric fields" },
         { status: 400 }
       );
     }

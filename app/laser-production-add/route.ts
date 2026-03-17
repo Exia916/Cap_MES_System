@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "piecesCut must be a non-negative number" }, { status: 400 });
     }
 
-    const name = payload.displayName ?? payload.username ?? "Unknown";
+    const name = payload.name ?? payload.username ?? "Unknown";
     const employeeNumber = payload.employeeNumber ? Number(payload.employeeNumber) : null;
 
     const { rows } = await db.query(

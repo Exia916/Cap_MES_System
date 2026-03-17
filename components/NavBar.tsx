@@ -180,11 +180,11 @@ export default function NavBar() {
   ].filter((x) => x.show !== false);
 
   const maintenanceItems: MenuItem[] = [
-    { kind: "section", label: "Operations", show: canSeeRepairRequests || canSeeCMMS },
+    { kind: "section" as const, label: "Operations", show: canSeeRepairRequests || canSeeCMMS },
     { href: "/cmms/repair-requests", label: "Repair Requests", show: canSeeRepairRequests },
     { href: "/cmms", label: "CMMS", show: canSeeCMMS },
 
-    { kind: "section", label: "Configuration", show: canSeeCmmsMasterData },
+    { kind: "section" as const, label: "Configuration", show: canSeeCmmsMasterData },
     { href: "/admin/master-data/priorities", label: "CMMS Priorities", show: canSeeCmmsMasterData },
     { href: "/admin/master-data/statuses", label: "CMMS Statuses", show: canSeeCmmsMasterData },
     { href: "/admin/master-data/issue_catalog", label: "Issue Catalog", show: canSeeCmmsMasterData },
@@ -199,7 +199,7 @@ export default function NavBar() {
   ].filter((x) => x.show !== false);
 
   const adminItems: MenuItem[] = [
-    { kind: "section", label: "Administration", show: meLoaded && isAdmin },
+    { kind: "section" as const, label: "Administration", show: meLoaded && isAdmin },
     { href: "/admin", label: "Admin Home", show: meLoaded && isAdmin },
     { href: "/admin/users", label: "Admin Users", show: meLoaded && isAdmin },
     { href: "/admin/master-data", label: "Master Data (Lists)", show: meLoaded && isAdmin },

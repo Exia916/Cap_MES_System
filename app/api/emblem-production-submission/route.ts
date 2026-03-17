@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyJwt } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -18,29 +18,40 @@ type Body = {
   lines: Line[];
 };
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const payload = verifyJwt(token);
-    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!payload) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = (await req.json()) as Body;
 
     const salesOrder = Number(body.salesOrder);
-    if (!body.entryDate) return NextResponse.json({ error: "entryDate is required" }, { status: 400 });
-    if (!Number.isFinite(salesOrder)) return NextResponse.json({ error: "salesOrder is required" }, { status: 400 });
+    if (!body.entryDate) {
+      return NextResponse.json({ error: "entryDate is required" }, { status: 400 });
+    }
+    if (!Number.isFinite(salesOrder)) {
+      return NextResponse.json({ error: "salesOrder is required" }, { status: 400 });
+    }
     if (!Array.isArray(body.lines) || body.lines.length === 0) {
       return NextResponse.json({ error: "At least one line is required" }, { status: 400 });
     }
 
-    const name = payload.displayName ?? payload.username ?? "Unknown";
+    const name =
+      payload.username?.trim() ||
+      "Unknown";
+
     const employeeNumber =
-      payload.employeeNumber !== undefined && payload.employeeNumber !== null && payload.employeeNumber !== ""
-        ? Number(payload.employeeNumber)
-        : null;
+  payload.employeeNumber !== undefined && payload.employeeNumber !== null
+    ? Number(payload.employeeNumber)
+    : null;
 
     const client = await db.connect();
     try {
@@ -60,7 +71,9 @@ export async function POST(req: Request) {
 
       for (const line of body.lines) {
         const pieces = Number(line.pieces);
-        if (!Number.isFinite(pieces)) throw new Error("Each line needs a valid pieces");
+        if (!Number.isFinite(pieces)) {
+          throw new Error("Each line needs a valid pieces");
+        }
 
         const detailNumber =
           line.detailNumber === undefined || line.detailNumber === null || line.detailNumber === ""

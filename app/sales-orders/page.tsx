@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type SbtSalesOrderCompany = {
@@ -138,11 +138,11 @@ function decorationsForLine(rows: SbtSalesOrderDecoration[] | undefined, lineNo:
   return rows.filter((x) => Number(x?.lineNo) === lineNo);
 }
 
-export default function SalesOrdersPage() {
+function SalesOrdersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const initialSo = (searchParams.get("so") || "").trim();
+  const initialSo = (searchParams?.get("so") || "").trim();
 
   const [salesOrderInput, setSalesOrderInput] = useState(initialSo);
   const [loading, setLoading] = useState(false);
@@ -502,5 +502,13 @@ export default function SalesOrdersPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+export default function SalesOrdersPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 16 }}>Loading…</div>}>
+      <SalesOrdersContent />
+    </Suspense>
   );
 }
