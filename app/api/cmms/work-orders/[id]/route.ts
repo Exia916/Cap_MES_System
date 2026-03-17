@@ -183,6 +183,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       );
     }
 
+    if (
+      departmentId === null ||
+      assetId === null ||
+      priorityId === null ||
+      commonIssueId === null
+    ) {
+      return NextResponse.json(
+        { error: "Missing/invalid numeric fields" },
+        { status: 400 }
+      );
+    }
+
     const activityActor = buildActivityActor(auth);
 
     const updated = await updateWorkOrderRequesterFields({

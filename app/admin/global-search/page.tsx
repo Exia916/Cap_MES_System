@@ -1,7 +1,7 @@
 // app/admin/global-search/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Me = {
@@ -107,11 +107,11 @@ function getRowUrl(sectionKey: SectionKey, r: any): string | null {
   return workOrderId ? `/cmms/${encodeURIComponent(String(workOrderId))}` : null;
 }
 
-export default function GlobalSearchPage() {
+function GlobalSearchPageInner() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const q = (sp.get("q") || "").trim();
+  const q = (sp?.get("q") || "").trim();
 
   const [showAll, setShowAll] = useState(false);
   const [start, setStart] = useState("");
@@ -434,3 +434,12 @@ const btnGhost: React.CSSProperties = {
 const rowClickable: React.CSSProperties = {
   cursor: "pointer",
 };
+
+
+export default function GlobalSearchPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 16 }}>Loading…</div>}>
+      <GlobalSearchPageInner />
+    </Suspense>
+  );
+}

@@ -72,22 +72,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const authUser = result.user;
+
     await logSecurityEvent({
       req,
       category: "AUTH",
       module: "AUTH",
       eventType: "LOGIN_SUCCESS",
       message: "User login succeeded",
-      username: result.username ?? username,
+      username: authUser.username ?? username,
       employeeNumber:
-        typeof result.employeeNumber === "number" ? result.employeeNumber : null,
-      role: result.role ?? null,
+        typeof authUser.employeeNumber === "number" ? authUser.employeeNumber : null,
+      role: authUser.role ?? null,
       details: {
-        displayName: result.displayName ?? null,
+        displayName:
+          (authUser as any).displayName ??
+          (authUser as any).name ??
+          authUser.username ??
+          null,
       },
     });
 
-    const response = NextResponse.json<LoginResponse>({ success: true }, { status: 200 });
+    const response = NextResponse.json<LoginResponse>(
+      { success: true },
+      { status: 200 }
+    );
 
     response.cookies.set(COOKIE_NAME, result.token, {
       httpOnly: true,

@@ -45,10 +45,14 @@ export async function GET(req: NextRequest) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
-    if (!token) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+    if (!token) {
+      return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const payload = verifyJwt(token);
-    if (!payload) return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+    if (!payload) {
+      return NextResponse.json<Resp>({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const sp = req.nextUrl.searchParams;
 
@@ -82,7 +86,8 @@ export async function GET(req: NextRequest) {
       | "leatherStyleColor"
       | "piecesCut";
 
-    const sortDir = (sp.get("sortDir")?.trim() || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+    const sortDir =
+      (sp.get("sortDir")?.trim() || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
 
     const name = sp.get("name")?.trim() ?? "";
     const notes = sp.get("notes")?.trim() ?? "";
@@ -93,11 +98,11 @@ export async function GET(req: NextRequest) {
     let where = `l.entry_date BETWEEN $1::date AND $2::date`;
 
     if (String(payload.role || "").toUpperCase() !== "ADMIN") {
-      if (payload.employeeNumber) {
+      if (payload.employeeNumber != null) {
         params.push(Number(payload.employeeNumber));
         where += ` AND l.employee_number = $${params.length}::int`;
       } else {
-        params.push(payload.displayName ?? payload.username ?? "");
+        params.push(payload.username ?? "");
         where += ` AND l.name = $${params.length}::text`;
       }
     }
@@ -176,6 +181,9 @@ export async function GET(req: NextRequest) {
     );
   } catch (err: any) {
     console.error("laser-production-list GET error:", err);
-    return NextResponse.json<Resp>({ error: err?.message || "Server error" }, { status: 500 });
+    return NextResponse.json<Resp>(
+      { error: err?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }

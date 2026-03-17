@@ -423,7 +423,6 @@ export default function CMMSWorkOrderViewPage({
             <AttachmentsPanel
               entityType="cmms_work_order"
               entityId={String(row.workOrderId)}
-              title="Attachments"
             />
           </section>
 

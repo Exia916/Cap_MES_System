@@ -8,7 +8,7 @@ type GetResp =
 
 type PutBody = {
   machineNumber?: number | string | null;
-  salesOrder?: number | string | null;      // bigint
+  salesOrder?: number | string | null;
   detailNumber?: number | string | null;
   embroideryLocation?: string | null;
   stitches?: number | string | null;
@@ -31,7 +31,7 @@ type EmbroideryEntry = {
   employeeNumber: number;
   shift: string;
   machineNumber: number | null;
-  salesOrder: string | null; // bigint -> string
+  salesOrder: string | null;
   detailNumber: number | null;
   embroideryLocation: string | null;
   stitches: number | null;
@@ -40,8 +40,8 @@ type EmbroideryEntry = {
   isKnit: boolean | null;
   detailComplete: boolean | null;
   notes: string | null;
-  totalStitches: string | null; // bigint -> string
-  dozens: string | null;        // numeric -> string
+  totalStitches: string | null;
+  dozens: string | null;
 };
 
 function toNullableInt(v: unknown): number | null {
@@ -51,7 +51,6 @@ function toNullableInt(v: unknown): number | null {
 }
 
 function toNullableBigint(v: unknown): string | null {
-  // Send bigint to PG as string to avoid JS precision issues
   if (v === null || v === undefined || v === "") return null;
   const s = String(v).trim();
   return /^-?\d+$/.test(s) ? s : null;
@@ -65,12 +64,14 @@ function toNullableStr(v: unknown): string | null {
 
 export async function GET(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = getAuthFromRequest(req);
-  if (!auth) return NextResponse.json<GetResp>({ error: "Unauthorized" }, { status: 401 });
+  if (!auth) {
+    return NextResponse.json<GetResp>({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const id = ctx.params.id;
+  const { id } = await params;
 
   try {
     const sql = `
@@ -114,12 +115,14 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = getAuthFromRequest(req);
-  if (!auth) return NextResponse.json<PutResp>({ error: "Unauthorized" }, { status: 401 });
+  if (!auth) {
+    return NextResponse.json<PutResp>({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const id = ctx.params.id;
+  const { id } = await params;
 
   let body: PutBody;
   try {
@@ -136,11 +139,11 @@ export async function PUT(
   const pieces = toNullableInt(body.pieces);
   const is3d = body.is3d === undefined ? null : Boolean(body.is3d);
   const isKnit = body.isKnit === undefined ? null : Boolean(body.isKnit);
-  const detailComplete = body.detailComplete === undefined ? null : Boolean(body.detailComplete);
+  const detailComplete =
+    body.detailComplete === undefined ? null : Boolean(body.detailComplete);
   const notes = toNullableStr(body.notes);
 
   try {
-    // Also recompute total_stitches and dozens from stitches/pieces (matches your columns)
     const sql = `
       UPDATE embroidery_daily_entries
       SET
