@@ -102,10 +102,11 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
 
   const errTextClass = "mt-1 text-xs text-red-600";
 
-  function inputClass(isError: boolean) {
+  function inputClass(isError: boolean, disabled = false) {
     return [
       "mt-1 w-full rounded border px-3 py-2 text-sm",
       isError ? "border-red-500" : "border-gray-300",
+      disabled ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "",
       "focus:outline-none focus:ring-2 focus:ring-black/20",
     ].join(" ");
   }
@@ -399,11 +400,15 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
         return;
       }
 
-      setSuccessMsg(isUpdate ? "Saved changes." : "Saved!");
+      if (isUpdate) {
+        router.push("/daily-production");
+        router.refresh();
+        return;
+      }
+
+      setSuccessMsg("Saved!");
       setErrors({});
       setTimeout(() => setSuccessMsg(null), 2500);
-
-      if (isUpdate) return;
 
       setSalesOrder("");
       setMachineNumber("");
@@ -457,15 +462,20 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
                 ref={salesOrderRef}
                 value={salesOrder}
                 onChange={(e) => {
+                  if (isEditMode) return;
                   setSalesOrder(e.target.value);
                   clearSalesOrderError();
                 }}
-                className={inputClass(!!errors.salesOrder)}
+                className={inputClass(!!errors.salesOrder, isEditMode)}
                 placeholder="1234567 or 1234567.001"
+                disabled={isEditMode}
+                readOnly={isEditMode}
               />
               {errors.salesOrder ? <div className={errTextClass}>{errors.salesOrder}</div> : null}
               <div className="mt-1 text-xs opacity-70">
-                Enter the order reference. The system uses the first 7 digits as the base Sales Order.
+                {isEditMode
+                  ? "Sales Order cannot be changed when editing an existing submission."
+                  : "Enter the order reference. The system uses the first 7 digits as the base Sales Order."}
               </div>
             </div>
 
@@ -557,7 +567,7 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
                     </button>
                   </div>
 
-                  <div className={`mt-3 grid grid-cols-1 gap-4 ${annex ? "md:grid-cols-12" : "md:grid-cols-12"}`}>
+                  <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-12">
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium">
                         Detail # <span className="text-red-600">*</span>
@@ -725,9 +735,22 @@ export default function DailyProductionForm(props: DailyProductionFormProps) {
           </div>
         ) : null}
 
-        <button type="submit" disabled={saving} className="btn btn-primary">
-          {saving ? "Saving..." : isEditMode ? "Save Changes" : "Save"}
-        </button>
+        <div className="flex gap-2">
+          <button type="submit" disabled={saving} className="btn btn-primary">
+            {saving ? "Saving..." : isEditMode ? "Save Changes" : "Save"}
+          </button>
+
+          {isEditMode ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => router.push("/daily-production")}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </form>
     </>
   );
