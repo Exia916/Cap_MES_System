@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -55,66 +55,118 @@ export default function NavBar() {
       else if (w < 1400) setNavMode("medium");
       else setNavMode("wide");
     }
+
     compute();
     window.addEventListener("resize", compute);
     return () => window.removeEventListener("resize", compute);
   }, []);
 
-  const fetchMe = useCallback(async () => {
-    setMeLoaded(false);
-    try {
-      const res = await fetch("/api/me", {
-        credentials: "include",
-        cache: "no-store",
-      });
+  useEffect(() => {
+    let alive = true;
 
-      if (!res.ok) {
+    async function loadMe() {
+      try {
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!alive) return;
+
+        if (res.status === 401) {
+          setMe(null);
+          setMeLoaded(true);
+          return;
+        }
+
+        if (!res.ok) {
+          setMe(null);
+          setMeLoaded(true);
+          return;
+        }
+
+        const data = (await res.json()) as Me;
+
+        if (!alive) return;
+        setMe(data);
+        setMeLoaded(true);
+      } catch {
+        if (!alive) return;
         setMe(null);
         setMeLoaded(true);
-        return;
       }
-
-      const data = (await res.json()) as Me;
-      setMe(data);
-      setMeLoaded(true);
-    } catch {
-      setMe(null);
-      setMeLoaded(true);
     }
+
+    loadMe();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
-    fetchMe();
-  }, [fetchMe, pathname]);
+    async function refreshMe() {
+      try {
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
 
-  useEffect(() => {
-    function onFocus() {
-      fetchMe();
+        if (res.status === 401) {
+          setMe(null);
+          setMeLoaded(true);
+          return;
+        }
+
+        if (!res.ok) {
+          return;
+        }
+
+        const data = (await res.json()) as Me;
+        setMe(data);
+        setMeLoaded(true);
+      } catch {
+        // keep current state on transient failures
+      }
     }
-    function onVis() {
-      if (document.visibilityState === "visible") fetchMe();
+
+    function onFocus() {
+      refreshMe();
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshMe();
+      }
     }
 
     window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [fetchMe]);
+  }, []);
 
   useEffect(() => {
     function onDown(e: MouseEvent) {
       const el = menusWrapRef.current;
       if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) setOpenMenu(null);
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        setOpenMenu(null);
+      }
     }
+
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpenMenu(null);
+      if (e.key === "Escape") {
+        setOpenMenu(null);
+      }
     }
+
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
@@ -130,25 +182,27 @@ export default function NavBar() {
   const username = useMemo(() => (me?.username ?? "").trim().toLowerCase(), [me?.username]);
 
   const GLOBAL_SEARCH_ROLES = [
-  "ADMIN",
-  "SUPERVISOR",
-  "MANAGER",
-  "CUSTOMER SERVICE",
-  "PURCHASING",
-  "SALES",
-] as const;
+    "ADMIN",
+    "SUPERVISOR",
+    "MANAGER",
+    "CUSTOMER SERVICE",
+    "PURCHASING",
+    "SALES",
+  ] as const;
 
-const isAdmin = role === "ADMIN" || username === "admin";
-const isManager = isAdmin || role === "MANAGER" || role === "SUPERVISOR";
+  const isAdmin = role === "ADMIN" || username === "admin";
+  const isManager = isAdmin || role === "MANAGER" || role === "SUPERVISOR";
 
-const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
+  const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
+
   const canSeeRepairRequests =
     meLoaded && (isAdmin || role === "MANAGER" || role === "SUPERVISOR");
 
   const canSeeCMMS = meLoaded && (isAdmin || role === "TECH");
 
   const canSeeRecuts =
-    meLoaded && (isAdmin || role === "MANAGER" || role === "SUPERVISOR" || role === "USER");
+    meLoaded &&
+    (isAdmin || role === "MANAGER" || role === "SUPERVISOR" || role === "USER");
 
   const canSeeRecutReview =
     meLoaded && (isAdmin || role === "MANAGER" || role === "SUPERVISOR");
@@ -164,7 +218,7 @@ const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
 
   function runGlobalSearch() {
     const q = globalQ.trim();
-    if (!q) return;
+    if (!q || !canGlobalSearch) return;
     setOpenMenu(null);
     router.push(`/admin/global-search?q=${encodeURIComponent(q)}`);
   }
@@ -180,9 +234,6 @@ const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
     { href: "/emblem-production", label: "Emblem" },
     { href: "/laser-production", label: "Laser" },
     { href: "/knit-production", label: "Knit Production" },
-    // Added Knit QC module. Mirrors the naming pattern used for
-    // production modules like Knit Production. See Knit QC module for
-    // details.
     { href: "/knit-qc", label: "Knit QC" },
     { href: "/production/sample-embroidery", label: "Sample Embroidery" },
   ];
@@ -428,7 +479,7 @@ const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
                 width: searchFocused ? 360 : 240,
                 transition: "width 0.2s ease",
               }}
-              title="Global search (Admin/Manager)"
+              title="Global search"
             >
               <input
                 value={globalQ}
@@ -477,10 +528,14 @@ const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
             </button>
 
             {openMenu === "user" ? (
-              <div style={menuPanel} role="menu" aria-label="User menu">
+              <div
+                style={{ ...menuPanel, right: 0, left: "auto" }}
+                role="menu"
+                aria-label="User menu"
+              >
                 <div style={menuHeader}>
                   <div style={menuUserName}>{meLoaded ? display || "Unknown" : "…"}</div>
-                  <div style={menuUserMeta}>{meLoaded ? (role ? role : "USER") : ""}</div>
+                  <div style={menuUserMeta}>{meLoaded ? role || "USER" : ""}</div>
                 </div>
 
                 <div style={menuDivider} />
@@ -506,7 +561,15 @@ const canGlobalSearch = GLOBAL_SEARCH_ROLES.includes(role as any);
   );
 }
 
-function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
+function NavLink({
+  href,
+  label,
+  pathname,
+}: {
+  href: string;
+  label: string;
+  pathname: string;
+}) {
   const active = isActive(pathname, href);
   return (
     <Link href={href} style={{ ...link, ...(active ? activeLink : {}) }}>
@@ -646,7 +709,10 @@ function MoreMenu({
                   .filter((it) => it.show !== false)
                   .map((it, itemIdx, arr) => {
                     if (it.kind === "section") {
-                      const hasPrevVisibleLink = arr.slice(0, itemIdx).some((x) => x.kind !== "section");
+                      const hasPrevVisibleLink = arr
+                        .slice(0, itemIdx)
+                        .some((x) => x.kind !== "section");
+
                       return (
                         <div key={`more-section:${sec.title}:${it.label}`}>
                           {hasPrevVisibleLink ? <div style={menuDivider} /> : null}
@@ -680,10 +746,6 @@ function MoreMenu({
     </div>
   );
 }
-
-/* ---------------------------- */
-/* Styles                        */
-/* ---------------------------- */
 
 const nav: React.CSSProperties = {
   position: "sticky",

@@ -1,4 +1,3 @@
-// app/admin/global-search/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState, Suspense } from "react";
@@ -256,10 +255,22 @@ function GlobalSearchPageInner() {
 
     (async () => {
       setMeLoaded(false);
+
       try {
-        const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!alive) return;
+
+        if (res.status === 401) {
+          setMe(null);
+          setMeLoaded(true);
+          return;
+        }
+
         if (!res.ok) {
-          if (!alive) return;
           setMe(null);
           setMeLoaded(true);
           return;
@@ -267,6 +278,7 @@ function GlobalSearchPageInner() {
 
         const j = (await res.json()) as Me;
         if (!alive) return;
+
         setMe(j);
         setMeLoaded(true);
       } catch {
@@ -306,10 +318,19 @@ function GlobalSearchPageInner() {
     (async () => {
       setLoading(true);
       setError(null);
+
       try {
-        const res = await fetch(`/api/admin/global-search?${p.toString()}`, { cache: "no-store" });
+        const res = await fetch(`/api/admin/global-search?${p.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+
         const j = await res.json();
-        if (!res.ok) throw new Error(j?.error || "Failed to load");
+
+        if (!res.ok) {
+          throw new Error(j?.error || "Failed to load");
+        }
+
         if (!alive) return;
         setData(j);
       } catch (e: any) {
@@ -336,11 +357,24 @@ function GlobalSearchPageInner() {
     );
   }
 
+  if (!me) {
+    return (
+      <div style={{ padding: 16 }}>
+        <h1 style={{ marginBottom: 10 }}>Global Search</h1>
+        <div style={{ color: "crimson", fontWeight: 800 }}>
+          You are not signed in.
+        </div>
+      </div>
+    );
+  }
+
   if (!canAccess) {
     return (
       <div style={{ padding: 16 }}>
         <h1 style={{ marginBottom: 10 }}>Global Search</h1>
-        <div style={{ color: "crimson", fontWeight: 800 }}>You do not have access to Global Search.</div>
+        <div style={{ color: "crimson", fontWeight: 800 }}>
+          You do not have access to Global Search.
+        </div>
         <div style={{ marginTop: 10, color: "#6b7280", fontSize: 13 }}>
           Allowed roles: <b>{GLOBAL_SEARCH_ROLES.join(", ")}</b>. (Your role from /api/me is:{" "}
           <b>{me?.role ?? "null"}</b>)
@@ -376,18 +410,25 @@ function GlobalSearchPageInner() {
       </div>
 
       <div style={{ marginBottom: 12, color: "#111827" }}>
-        <span style={{ fontWeight: 800 }}>Query:</span> <span style={{ fontFamily: "monospace" }}>{q || "(empty)"}</span>
+        <span style={{ fontWeight: 800 }}>Query:</span>{" "}
+        <span style={{ fontFamily: "monospace" }}>{q || "(empty)"}</span>
       </div>
 
       {error && <div style={{ color: "crimson", marginBottom: 10 }}>{error}</div>}
       {loading && <div style={{ marginBottom: 10, fontWeight: 800 }}>Searching…</div>}
-      {!q ? <div style={{ color: "#6b7280" }}>Type a value in the navbar search and press Enter / Search.</div> : null}
+      {!q ? (
+        <div style={{ color: "#6b7280" }}>
+          Type a value in the navbar search and press Enter / Search.
+        </div>
+      ) : null}
 
       {data?.sections?.map((sec) => (
         <div key={sec.key} style={sectionCard}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
             <div style={{ fontWeight: 900 }}>{sec.title}</div>
-            <div style={{ color: "#6b7280", fontSize: 12 }}>Matches: {fmtInt(sec.count)}</div>
+            <div style={{ color: "#6b7280", fontSize: 12 }}>
+              Matches: {fmtInt(sec.count)}
+            </div>
 
             <button onClick={() => router.push(getOpenUrl(sec.key, q))} style={btnGhost}>
               Open {sec.title}
@@ -438,7 +479,9 @@ function GlobalSearchPageInner() {
                         <td style={td}>
                           <KeyFields sectionKey={sec.key} r={r} />
                         </td>
-                        <td style={{ ...td, maxWidth: 520, whiteSpace: "pre-wrap" }}>{r.notes ?? ""}</td>
+                        <td style={{ ...td, maxWidth: 520, whiteSpace: "pre-wrap" }}>
+                          {r.notes ?? ""}
+                        </td>
                       </tr>
                     );
                   })}
