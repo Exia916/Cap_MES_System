@@ -20,8 +20,12 @@ function isPublicPath(pathname: string) {
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length < 2) return null;
+
   const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "="
+  );
 
   try {
     const json = atob(padded);
@@ -32,13 +36,8 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 }
 
 function getRole(payload: Record<string, unknown> | null) {
-  const r = String((payload as any)?.role || "").trim().toUpperCase();
-  return r;
+  return String((payload as any)?.role || "").trim().toUpperCase();
 }
-
-/* -------------------------------------------------------------------------- */
-/* CMMS MASTER DATA KEYS                                                      */
-/* -------------------------------------------------------------------------- */
 
 const CMMS_MASTER_KEYS = new Set([
   "priorities",
@@ -50,14 +49,30 @@ const CMMS_MASTER_KEYS = new Set([
   "cmms_assets",
 ]);
 
+const GLOBAL_SEARCH_ALLOWED_ROLES = new Set([
+  "ADMIN",
+  "SUPERVISOR",
+  "MANAGER",
+  "CUSTOMER SERVICE",
+  "PURCHASING",
+  "SALES",
+]);
+
 function isCmmsMasterPath(pathname: string) {
   const parts = pathname.split("/");
-
   const idx = parts.indexOf("master-data");
+
   if (idx === -1) return false;
 
   const key = parts[idx + 1];
   return CMMS_MASTER_KEYS.has(key);
+}
+
+function isGlobalSearchPath(pathname: string) {
+  return (
+    pathname === "/admin/global-search" ||
+    pathname.startsWith("/api/admin/global-search")
+  );
 }
 
 export function proxy(request: NextRequest) {
@@ -76,33 +91,40 @@ export function proxy(request: NextRequest) {
   const payload = decodeJwtPayload(token);
   const role = getRole(payload);
 
-  /* -------------------------------------------------------------------------- */
-  /* ADMIN ROUTES                                                               */
-  /* -------------------------------------------------------------------------- */
+  if (!payload) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
 
   if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
+    if (isGlobalSearchPath(pathname)) {
+      if (!GLOBAL_SEARCH_ALLOWED_ROLES.has(role)) {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+
+      return NextResponse.next();
+    }
+
     const isCmmsMaster = isCmmsMasterPath(pathname);
 
     if (isCmmsMaster) {
       const allowed = new Set(["ADMIN", "TECH"]);
-      if (!payload || !allowed.has(role)) {
+
+      if (!allowed.has(role)) {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
-    } else {
-      if (!payload || role !== "ADMIN") {
-        return NextResponse.redirect(new URL("/login", request.url));
-      }
+
+      return NextResponse.next();
+    }
+
+    if (role !== "ADMIN") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
     }
   }
-
-  /* -------------------------------------------------------------------------- */
-  /* CMMS MODULE                                                                */
-  /* -------------------------------------------------------------------------- */
 
   if (pathname.startsWith("/cmms") || pathname.startsWith("/api/cmms")) {
     const allowed = new Set(["ADMIN", "MANAGER", "SUPERVISOR", "TECH"]);
 
-    if (!payload || !allowed.has(role)) {
+    if (!allowed.has(role)) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
   }

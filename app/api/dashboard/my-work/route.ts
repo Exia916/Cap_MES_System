@@ -13,6 +13,8 @@ type SourceDef = {
   title: string;
   href: string;
   sourceKey: string;
+  userColumn: string;
+  timestampColumn: string;
 };
 
 const SOURCES: SourceDef[] = [
@@ -21,48 +23,64 @@ const SOURCES: SourceDef[] = [
     title: "Daily Production",
     href: "/daily-production",
     sourceKey: "daily-production",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "qc_daily_entries",
     title: "QC Daily",
     href: "/qc-daily-production",
     sourceKey: "qc-daily",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "emblem_entries",
     title: "Emblem",
     href: "/emblem-production",
     sourceKey: "emblem",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "laser_entries",
     title: "Laser",
     href: "/laser-production",
     sourceKey: "laser",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "recut_requests",
     title: "Recuts",
     href: "/recuts",
     sourceKey: "recuts",
+    userColumn: "created_by", // recuts likely uses audit fields
+    timestampColumn: "created_at",
   },
   {
     tableName: "sample_embroidery",
     title: "Sample Embroidery",
     href: "/production/sample-embroidery",
     sourceKey: "sample-embroidery",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "knit_production_submissions",
     title: "Knit Production",
     href: "/knit-production",
     sourceKey: "knit-production",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
   {
     tableName: "knit_qc_submissions",
     title: "Knit QC",
     href: "/knit-qc",
     sourceKey: "knit-qc",
+    userColumn: "name",
+    timestampColumn: "entry_ts",
   },
 ];
 
@@ -70,7 +88,6 @@ async function tableExists(tableName: string): Promise<boolean> {
   const sql = `
     SELECT to_regclass($1) IS NOT NULL AS exists
   `;
-
   const result = await db.query<{ exists: boolean }>(sql, [tableName]);
   return !!result.rows[0]?.exists;
 }
@@ -88,11 +105,11 @@ async function fetchRecentForSource(
       $2::text AS source_key,
       $3::text AS title,
       $4::text AS href,
-      created_at
+      ${source.timestampColumn} AS created_at
     FROM ${source.tableName}
-    WHERE LOWER(COALESCE(created_by, '')) = LOWER($1)
+    WHERE LOWER(COALESCE(${source.userColumn}, '')) = LOWER($1)
       AND COALESCE(is_voided, false) = false
-    ORDER BY created_at DESC
+    ORDER BY ${source.timestampColumn} DESC
     LIMIT ${limitPerSource}
   `;
 
@@ -109,6 +126,7 @@ async function fetchRecentForSource(
 export async function GET(req: NextRequest) {
   try {
     const username = req.nextUrl.searchParams.get("username")?.trim();
+
     const limit = Math.max(
       1,
       Math.min(12, Number(req.nextUrl.searchParams.get("limit") || "6"))
@@ -124,14 +142,17 @@ export async function GET(req: NextRequest) {
     const perSource = 3;
 
     const chunks = await Promise.all(
-      SOURCES.map((source) => fetchRecentForSource(source, username, perSource))
+      SOURCES.map((source) =>
+        fetchRecentForSource(source, username, perSource)
+      )
     );
 
     const items = chunks
       .flat()
       .sort(
         (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime()
       )
       .slice(0, limit)
       .map((item, index) => ({
